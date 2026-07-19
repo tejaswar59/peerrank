@@ -1,6 +1,6 @@
 import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -12,14 +12,18 @@ interface Props extends InputHTMLAttributes<HTMLInputElement> {
 // Floating-label glass input. The label lifts when focused or filled; the ring
 // glows cyan on focus and rose on error.
 export const Input = forwardRef<HTMLInputElement, Props>(function Input(
-  { label, error, icon, hint, className = "", onFocus, onBlur, onChange, value, defaultValue, ...rest },
+  { label, error, icon, hint, className = "", type, onFocus, onBlur, onChange, value, defaultValue, ...rest },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
   const [hasValue, setHasValue] = useState(
     Boolean(value ?? defaultValue ?? ""),
   );
+  const [reveal, setReveal] = useState(false);
   const lifted = focused || hasValue;
+  const isPassword = type === "password";
+  // When revealed, switch a password field to plain text so it shows.
+  const effectiveType = isPassword ? (reveal ? "text" : "password") : type;
 
   return (
     <div className={className}>
@@ -51,6 +55,7 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
         </label>
         <input
           ref={ref}
+          type={effectiveType}
           value={value}
           defaultValue={defaultValue}
           {...rest}
@@ -68,10 +73,22 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
             onChange?.(e);
           }}
           className={[
-            "ring-focus w-full bg-transparent pb-2 pt-6 text-[14px] text-white/90 outline-none placeholder:text-white/25",
-            icon ? "pl-11 pr-4" : "px-4",
+            "ring-focus w-full rounded-xl2 bg-transparent pb-2 pt-6 text-[14px] text-white/90 outline-none placeholder:text-white/25",
+            icon ? "pl-11" : "pl-4",
+            isPassword ? "pr-11" : "pr-4",
           ].join(" ")}
         />
+        {isPassword ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setReveal((v) => !v)}
+            aria-label={reveal ? "Hide password" : "Show password"}
+            className="ring-focus absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg text-white/40 transition hover:bg-white/[0.06] hover:text-white/80"
+          >
+            {reveal ? <EyeOff className="h-[17px] w-[17px]" /> : <Eye className="h-[17px] w-[17px]" />}
+          </button>
+        ) : null}
       </div>
       <AnimatePresence>
         {error ? (

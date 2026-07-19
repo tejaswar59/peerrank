@@ -8,6 +8,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
+import { PasswordChecklist, passwordValid } from "@/components/ui/PasswordChecklist";
 import GoogleButton from "@/components/GoogleButton";
 import { api } from "@/lib/api";
 import type { MessageOut } from "@/lib/types";
@@ -19,7 +20,12 @@ const schema = z
   .object({
     name: z.string().trim().max(200).optional().or(z.literal("")),
     email: z.string().min(1, "Email is required").email("Enter a valid email"),
-    password: z.string().min(8, "At least 8 characters"),
+    password: z
+      .string()
+      .min(8, "At least 8 characters")
+      .regex(/[A-Z]/, "Add an uppercase letter")
+      .regex(/\d/, "Add a number")
+      .regex(/[^A-Za-z0-9]/, "Add a special symbol"),
     confirm: z.string().min(1, "Please confirm your password"),
   })
   .refine((d) => d.password === d.confirm, {
@@ -27,23 +33,6 @@ const schema = z
     message: "Passwords don't match",
   });
 type Form = z.infer<typeof schema>;
-
-// live password strength (visual only)
-function strength(pw: string): { pct: number; label: string; color: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
-  if (/\d/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const map = [
-    { pct: 10, label: "", color: "#f43f5e" },
-    { pct: 30, label: "Weak", color: "#f43f5e" },
-    { pct: 55, label: "Fair", color: "#f59e0b" },
-    { pct: 80, label: "Good", color: "#22d3ee" },
-    { pct: 100, label: "Strong", color: "#10b981" },
-  ];
-  return map[score];
-}
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -60,7 +49,6 @@ export default function Signup() {
   } = useForm<Form>({ resolver: zodResolver(schema), mode: "onTouched" });
 
   const pw = watch("password") || "";
-  const st = strength(pw);
 
   async function onSubmit(data: Form) {
     try {
@@ -112,22 +100,10 @@ export default function Signup() {
             type="password"
             autoComplete="new-password"
             icon={<Lock className="h-[18px] w-[18px]" />}
-            error={errors.password?.message}
             {...register("password")}
           />
-          {pw ? (
-            <div className="mt-2 flex items-center gap-2 px-1">
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${st.pct}%`, background: st.color }}
-                />
-              </div>
-              <span className="w-12 text-right text-[11px] font-medium" style={{ color: st.color }}>
-                {st.label}
-              </span>
-            </div>
-          ) : null}
+          {/* Live requirements — a tick lights up the moment each rule is met. */}
+          <PasswordChecklist value={pw} />
         </div>
         <Input
           label="Confirm password"
@@ -137,7 +113,14 @@ export default function Signup() {
           error={errors.confirm?.message}
           {...register("confirm")}
         />
-        <Button type="submit" size="lg" block loading={isSubmitting} rightIcon={<ArrowRight className="h-[18px] w-[18px]" />}>
+        <Button
+          type="submit"
+          size="lg"
+          block
+          loading={isSubmitting}
+          disabled={!passwordValid(pw)}
+          rightIcon={<ArrowRight className="h-[18px] w-[18px]" />}
+        >
           Create account
         </Button>
       </form>

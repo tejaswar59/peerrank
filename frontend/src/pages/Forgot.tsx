@@ -6,6 +6,7 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { OtpInput } from "@/components/ui/OtpInput";
+import { PasswordChecklist, passwordValid } from "@/components/ui/PasswordChecklist";
 import { api } from "@/lib/api";
 import type { LoginOut, MessageOut } from "@/lib/types";
 import { toast } from "@/components/Toast";
@@ -71,7 +72,8 @@ export default function Forgot() {
   }
 
   async function setPassword() {
-    if (pw.length < 8) return toast("Password must be at least 8 characters", "err");
+    if (!passwordValid(pw))
+      return toast("Password must meet all the requirements below", "err");
     if (pw !== pw2) return toast("Passwords don't match", "err");
     setBusy(true);
     try {
@@ -163,14 +165,17 @@ export default function Forgot() {
           </motion.div>
         ) : (
           <motion.div key="password" {...slide} className="flex flex-col gap-4">
-            <Input
-              label="New password"
-              type="password"
-              autoComplete="new-password"
-              icon={<Lock className="h-[18px] w-[18px]" />}
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-            />
+            <div>
+              <Input
+                label="New password"
+                type="password"
+                autoComplete="new-password"
+                icon={<Lock className="h-[18px] w-[18px]" />}
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+              />
+              <PasswordChecklist value={pw} />
+            </div>
             <Input
               label="Confirm password"
               type="password"
@@ -180,7 +185,7 @@ export default function Forgot() {
               onChange={(e) => setPw2(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && setPassword()}
             />
-            <Button size="lg" block loading={busy} onClick={setPassword}>
+            <Button size="lg" block loading={busy} disabled={!passwordValid(pw)} onClick={setPassword}>
               Update password & sign in
             </Button>
           </motion.div>
