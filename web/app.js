@@ -377,14 +377,16 @@
         '<form id="login-form">' +
           '<label class="field"><span class="lbl">Email</span>' +
             '<input id="u" type="email" autocomplete="email" placeholder="Enter your email" /></label>' +
-          '<label class="field"><span class="lbl">Password</span>' +
+          '<label class="field" style="margin-bottom:6px;"><span class="lbl">Password</span>' +
             '<input id="p" type="password" autocomplete="current-password" placeholder="Enter your password" /></label>' +
+          '<p style="text-align:right;margin:0 0 14px;"><a id="to-forgot" class="link-sm">Forgot password?</a></p>' +
           '<button class="btn primary block" type="submit" id="signin">Sign in</button>' +
         '</form>' +
         '<p class="auth-switch">New to Peer Rank? <a id="to-signup">Create an account</a></p>' +
       "</div></div>"
     );
     wrap.querySelector("#to-signup").onclick = function () { go("#/signup"); };
+    wrap.querySelector("#to-forgot").onclick = function () { go("#/forgot"); };
     wrap.querySelector("#login-form").onsubmit = function (e) {
       e.preventDefault();
       var btn = wrap.querySelector("#signin");
@@ -543,6 +545,81 @@
     card.querySelector("#vf-back").onclick = function () { pendingSignup = null; go("#/signup"); };
     card.querySelector("#vf-resend").onclick = function () {
       api("/auth/resend", { method: "POST", body: { email: email } })
+        .then(function (r) { toast(r.message, "ok"); })
+        .catch(function (err) { toast(err.message, "err"); });
+    };
+  }
+
+  /* ------------------------------------------------------------------ *
+   * FORGOT / RESET PASSWORD
+   * ------------------------------------------------------------------ */
+  var pendingReset = null; // { email } carried from forgot -> reset
+
+  function viewForgot() {
+    var card = authShell(
+      '<p class="verify-note" style="margin-bottom:18px;">Enter your account email and we\'ll send a 6-digit code to reset your password.</p>' +
+      '<form id="fg-form">' +
+        '<label class="field"><span class="lbl">Email</span>' +
+          '<input id="fg-email" type="email" autocomplete="email" placeholder="Enter your email" /></label>' +
+        '<button class="btn primary block" type="submit" id="fg-btn">Send reset code</button>' +
+      "</form>" +
+      '<p class="auth-switch"><a id="fg-back">Back to sign in</a></p>'
+    );
+    card.querySelector("#auth-sub").textContent = "Reset your password";
+    card.querySelector("#fg-back").onclick = function () { go("#/login"); };
+    card.querySelector("#fg-form").onsubmit = function (e) {
+      e.preventDefault();
+      var email = card.querySelector("#fg-email").value.trim().toLowerCase();
+      if (!isEmail(email)) return toast("Enter a valid email address", "err");
+      var btn = card.querySelector("#fg-btn"); busy(btn, true);
+      api("/auth/forgot", { method: "POST", body: { email: email } })
+        .then(function (r) {
+          pendingReset = { email: email };
+          toast(r.message, "ok");
+          go("#/reset");
+        })
+        .catch(function (err) { busy(btn, false); toast(err.message, "err"); });
+    };
+  }
+
+  function viewReset() {
+    if (!pendingReset) return go("#/forgot");
+    var email = pendingReset.email;
+    var card = authShell(
+      '<p class="verify-note">Enter the 6-digit code sent to <b>' + esc(email) + "</b> and choose a new password.</p>" +
+      '<div id="rs-otp"></div>' +
+      '<label class="field" style="margin-top:16px;"><span class="lbl">New password</span>' +
+        '<input id="rs-pw" type="password" autocomplete="new-password" placeholder="New password (min 8 characters)" /></label>' +
+      '<label class="field"><span class="lbl">Confirm new password</span>' +
+        '<input id="rs-pw2" type="password" autocomplete="new-password" placeholder="Re-enter new password" /></label>' +
+      '<button class="btn primary block" id="rs-btn">Reset password</button>' +
+      '<p class="auth-switch"><a id="rs-resend">Resend code</a> &middot; <a id="rs-back">Use a different email</a></p>'
+    );
+    card.querySelector("#auth-sub").textContent = "Reset your password";
+    var otp = otpBoxes();
+    card.querySelector("#rs-otp").appendChild(otp.el);
+    setTimeout(function () { otp.focus(); }, 30);
+
+    card.querySelector("#rs-btn").onclick = function () {
+      var code = otp.value();
+      var pw = card.querySelector("#rs-pw").value;
+      var pw2 = card.querySelector("#rs-pw2").value;
+      if (code.length !== 6) return toast("Enter the 6-digit code", "err");
+      if (pw.length < 8) return toast("Password must be at least 8 characters", "err");
+      if (pw !== pw2) return toast("Passwords don't match", "err");
+      var btn = card.querySelector("#rs-btn"); busy(btn, true);
+      api("/auth/reset", { method: "POST", body: { email: email, code: code, new_password: pw } })
+        .then(function (r) {
+          session.set(r.token, r.role, r.email);
+          pendingReset = null;
+          toast("Password updated — you're signed in", "ok");
+          go(r.role === "admin" ? "#/admin" : "#/home");
+        })
+        .catch(function (err) { busy(btn, false); toast(err.message, "err"); });
+    };
+    card.querySelector("#rs-back").onclick = function () { pendingReset = null; go("#/forgot"); };
+    card.querySelector("#rs-resend").onclick = function () {
+      api("/auth/forgot", { method: "POST", body: { email: email } })
         .then(function (r) { toast(r.message, "ok"); })
         .catch(function (err) { toast(err.message, "err"); });
     };
@@ -1156,6 +1233,8 @@
     if (parts[0] === "login") return viewLogin();
     if (parts[0] === "signup") return viewSignup();
     if (parts[0] === "verify") return viewVerify();
+    if (parts[0] === "forgot") return viewForgot();
+    if (parts[0] === "reset") return viewReset();
 
     if (!session.isAuthed) { returnTo = h !== "#/login" ? h : null; return viewLogin(); }
 

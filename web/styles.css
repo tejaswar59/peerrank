@@ -272,6 +272,8 @@ table.part tr:last-child td { border-bottom: none; }
 .auth-switch { margin: 18px 0 0; font-size: 13px; color: var(--ink-soft); text-align: center; }
 .auth-switch a { color: var(--teal); font-weight: 600; cursor: pointer; }
 .auth-switch a:hover { text-decoration: underline; }
+.link-sm { color: var(--teal); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.link-sm:hover { text-decoration: underline; }
 .seg { position: relative; display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 11px; padding: 4px; }
 /* Sliding highlight that glides between the two options. */
 .seg::before {
