@@ -40,6 +40,7 @@ class ResendIn(BaseModel):
 
 class GoogleIn(BaseModel):
     credential: str  # the Google ID token (JWT) from the Sign-in button
+    role: str | None = None  # "admin"/"member" picked on the signup toggle; new users only
 
 
 class ForgotIn(BaseModel):
