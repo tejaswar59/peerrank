@@ -45,9 +45,8 @@ class Settings(BaseSettings):
     # in production. See the DEPLOY.md checklist.
     master_otp: str = "112233"
 
-    # SMTP for sending the OTP email. Leave SMTP_HOST empty in dev — the code is
-    # then logged to the server console instead of emailed. In production set
-    # these to your provider (e.g. AWS SES SMTP endpoint + credentials).
+    # SMTP for sending the OTP email (Gmail). Leave SMTP_HOST empty in dev — the
+    # code is then logged to the server console instead of emailed.
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_user: str = ""

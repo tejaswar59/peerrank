@@ -66,9 +66,8 @@ def send_otp_email(to_email: str, code: str) -> None:
         f"Your {settings.app_name} verification code is {code}. "
         f"It expires in {minutes} minutes. If you didn't request this, ignore this email."
     )
-
     if not settings.smtp_host:
-        # Dev fallback: no mail provider configured — surface the code in logs.
+        # Dev fallback: no SMTP configured — surface the code in the logs.
         log.warning("[DEV] SMTP not configured — OTP for %s is %s", to_email, code)
         return
 
