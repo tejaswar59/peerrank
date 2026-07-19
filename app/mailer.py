@@ -6,6 +6,8 @@ console so the flow stays fully testable without a mail provider.
 """
 import logging
 import smtplib
+import socket
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import parseaddr
@@ -81,10 +83,18 @@ def send_otp_email(to_email: str, code: str) -> None:
 
     # Envelope sender must be a bare address, even if From has a display name.
     envelope_from = parseaddr(settings.smtp_from)[1] or settings.smtp_from
+
+    # Force IPv4: some hosts (e.g. Render) have no IPv6 route, so connecting to
+    # Gmail's AAAA record fails with "Network is unreachable". Resolve an IPv4
+    # address and connect to it, but keep the hostname for TLS verification.
+    ipv4 = socket.getaddrinfo(
+        settings.smtp_host, settings.smtp_port, socket.AF_INET, socket.SOCK_STREAM
+    )[0][4][0]
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as s:
+        with smtplib.SMTP(ipv4, settings.smtp_port, timeout=15) as s:
+            s._host = settings.smtp_host  # cert is verified against the hostname, not the IP
             if settings.smtp_use_tls:
-                s.starttls()
+                s.starttls(context=ssl.create_default_context())
             if settings.smtp_user:
                 s.login(settings.smtp_user, settings.smtp_password)
             s.sendmail(envelope_from, [to_email], msg.as_string())
