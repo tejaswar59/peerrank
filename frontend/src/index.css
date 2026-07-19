@@ -67,8 +67,25 @@
   }
 
   ::selection {
-    background: rgba(var(--teal), 0.32);
-    color: #fff;
+    background: rgba(var(--cyan), 0.55);
+    color: #04060a;
+  }
+  ::-moz-selection {
+    background: rgba(var(--cyan), 0.55);
+    color: #04060a;
+  }
+  /* Inputs/textareas: a bright, high-contrast selection so highlighted text is
+     obvious even over the dark glass fields and autofilled values. */
+  input::selection,
+  textarea::selection {
+    background: rgb(var(--cyan));
+    color: #04060a;
+    -webkit-text-fill-color: #04060a;
+  }
+  input::-moz-selection,
+  textarea::-moz-selection {
+    background: rgb(var(--cyan));
+    color: #04060a;
   }
 
   /* Custom scrollbar — thin, glassy. */
@@ -98,13 +115,19 @@
     font-weight: 600;
   }
 
-  /* Autofill: keep it dark & glassy. */
+  /* Autofill: Chrome paints its own opaque background on autofilled inputs via
+     a transition. We give background-color/color an effectively-infinite delay
+     so that fill never visibly applies — the field keeps its transparent glass
+     look and ONLY the text appears (no colour change at all). */
   input:-webkit-autofill,
-  input:-webkit-autofill:focus {
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
     -webkit-text-fill-color: rgb(var(--text));
-    -webkit-box-shadow: 0 0 0 1000px rgba(10, 14, 22, 0.9) inset;
     caret-color: rgb(var(--text));
-    transition: background-color 9999s ease-out;
+    transition:
+      background-color 600000s 0s,
+      color 600000s 0s;
   }
 }
 
