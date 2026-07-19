@@ -12,7 +12,7 @@ services:
       - key: SECRET_KEY
         generateValue: true          # Render generates a strong secret
       - key: MASTER_OTP
-        value: ""                    # dev bypass OFF in production
+        sync: false                  # set in dashboard (e.g. 112233 for the demo; blank for real prod)
       - key: DEV_PASSWORD
         sync: false                  # set a STRONG value (dev login uses it) — not "123"
       - key: DATABASE_URL
