@@ -1,0 +1,31 @@
+# Render blueprint — one web service running the whole app (API + SPA).
+# Data lives in an external free Postgres (Neon); set DATABASE_URL in the dashboard.
+services:
+  - type: web
+    name: peerrank
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # Render generates a strong secret
+      - key: MASTER_OTP
+        value: ""                    # dev bypass OFF in production
+      - key: DEV_PASSWORD
+        sync: false                  # set a STRONG value (dev login uses it) — not "123"
+      - key: DATABASE_URL
+        sync: false                  # set to your Neon URL (postgresql+psycopg://...)
+      - key: CORS_ORIGINS
+        value: "*"                   # SPA is same-origin; safe to leave
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false

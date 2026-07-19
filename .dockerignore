@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+.pytest_cache/
+.git/
+.gitignore
+peer-rank-mockups/
+.env
+*.md

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.db
+*.sqlite3
+.pytest_cache/
+.DS_Store
+
+# local tooling + temp
+.claude/
+s.out
+s.err
+
