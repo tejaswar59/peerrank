@@ -200,6 +200,32 @@ def forgot_password(body: ForgotIn, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/reset/check", response_model=MessageOut, dependencies=[Depends(_login_limit)])
+def reset_check(body: VerifyIn, db: Session = Depends(get_db)):
+    """Validate a reset code WITHOUT consuming it — lets the UI confirm the code
+    before asking for the new password. The final /reset re-validates + consumes."""
+    email = str(body.email).lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_verified:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset code.")
+    if settings.master_otp and body.code.strip() == settings.master_otp:
+        return MessageOut(message="ok")
+    otp = db.scalar(
+        select(OtpCode)
+        .where(
+            OtpCode.email == email,
+            OtpCode.purpose == "reset",
+            OtpCode.consumed == False,  # noqa: E712
+        )
+        .order_by(OtpCode.id.desc())
+    )
+    if otp is None or otp.expires_at < utcnow():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reset code expired — request a new one.")
+    if not otp_matches(body.code.strip(), otp.code_hash, settings.secret_key):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Incorrect code. Please try again.")
+    return MessageOut(message="ok")
+
+
 @router.post("/reset", response_model=LoginOut, dependencies=[Depends(_login_limit)])
 def reset_password(body: ResetIn, db: Session = Depends(get_db)):
     """Verify the reset code and set a new password, then sign the user in."""

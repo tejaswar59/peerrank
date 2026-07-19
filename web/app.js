@@ -585,26 +585,59 @@
   function viewReset() {
     if (!pendingReset) return go("#/forgot");
     var email = pendingReset.email;
+    resetStepCode(email);
+  }
+
+  // Step 1 — enter and verify the 6-digit code.
+  function resetStepCode(email) {
     var card = authShell(
-      '<p class="verify-note">Enter the 6-digit code sent to <b>' + esc(email) + "</b> and choose a new password.</p>" +
+      '<p class="verify-note">Enter the 6-digit code sent to <b>' + esc(email) + "</b></p>" +
       '<div id="rs-otp"></div>' +
-      '<label class="field" style="margin-top:16px;"><span class="lbl">New password</span>' +
+      '<button class="btn primary block" id="rs-continue" style="margin-top:18px;">Continue</button>' +
+      '<p class="auth-switch"><a id="rs-resend">Resend code</a> &middot; <a id="rs-back">Use a different email</a></p>'
+    );
+    card.querySelector("#auth-sub").textContent = "Reset your password";
+
+    var verifying = false;
+    function checkCode() {
+      var code = otp.value();
+      if (code.length !== 6 || verifying) return;
+      verifying = true;
+      var btn = card.querySelector("#rs-continue"); busy(btn, true);
+      api("/auth/reset/check", { method: "POST", body: { email: email, code: code } })
+        .then(function () { resetStepPassword(email, code); })   // code good -> ask for password
+        .catch(function (err) { verifying = false; busy(btn, false); toast(err.message, "err"); });
+    }
+
+    var otp = otpBoxes(function () { checkCode(); });  // auto-check when 6 digits entered
+    card.querySelector("#rs-otp").appendChild(otp.el);
+    setTimeout(function () { otp.focus(); }, 30);
+    card.querySelector("#rs-continue").onclick = checkCode;
+    card.querySelector("#rs-back").onclick = function () { pendingReset = null; go("#/forgot"); };
+    card.querySelector("#rs-resend").onclick = function () {
+      api("/auth/forgot", { method: "POST", body: { email: email } })
+        .then(function (r) { toast(r.message, "ok"); })
+        .catch(function (err) { toast(err.message, "err"); });
+    };
+  }
+
+  // Step 2 — code is verified; choose the new password.
+  function resetStepPassword(email, code) {
+    var card = authShell(
+      '<p class="verify-note">Code verified ✓ — choose a new password for <b>' + esc(email) + "</b></p>" +
+      '<label class="field"><span class="lbl">New password</span>' +
         '<input id="rs-pw" type="password" autocomplete="new-password" placeholder="New password (min 8 characters)" /></label>' +
       '<label class="field"><span class="lbl">Confirm new password</span>' +
         '<input id="rs-pw2" type="password" autocomplete="new-password" placeholder="Re-enter new password" /></label>' +
       '<button class="btn primary block" id="rs-btn">Reset password</button>' +
-      '<p class="auth-switch"><a id="rs-resend">Resend code</a> &middot; <a id="rs-back">Use a different email</a></p>'
+      '<p class="auth-switch"><a id="rs-recode">Re-enter code</a></p>'
     );
     card.querySelector("#auth-sub").textContent = "Reset your password";
-    var otp = otpBoxes();
-    card.querySelector("#rs-otp").appendChild(otp.el);
-    setTimeout(function () { otp.focus(); }, 30);
+    setTimeout(function () { card.querySelector("#rs-pw").focus(); }, 30);
 
     card.querySelector("#rs-btn").onclick = function () {
-      var code = otp.value();
       var pw = card.querySelector("#rs-pw").value;
       var pw2 = card.querySelector("#rs-pw2").value;
-      if (code.length !== 6) return toast("Enter the 6-digit code", "err");
       if (pw.length < 8) return toast("Password must be at least 8 characters", "err");
       if (pw !== pw2) return toast("Passwords don't match", "err");
       var btn = card.querySelector("#rs-btn"); busy(btn, true);
@@ -615,14 +648,13 @@
           toast("Password updated — you're signed in", "ok");
           go(r.role === "admin" ? "#/admin" : "#/home");
         })
-        .catch(function (err) { busy(btn, false); toast(err.message, "err"); });
+        .catch(function (err) {
+          busy(btn, false);
+          toast(err.message, "err");
+          if (err.status === 400) resetStepCode(email);  // code expired/invalid -> back to step 1
+        });
     };
-    card.querySelector("#rs-back").onclick = function () { pendingReset = null; go("#/forgot"); };
-    card.querySelector("#rs-resend").onclick = function () {
-      api("/auth/forgot", { method: "POST", body: { email: email } })
-        .then(function (r) { toast(r.message, "ok"); })
-        .catch(function (err) { toast(err.message, "err"); });
-    };
+    card.querySelector("#rs-recode").onclick = function () { resetStepCode(email); };
   }
 
   /* ------------------------------------------------------------------ *
