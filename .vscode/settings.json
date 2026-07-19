@@ -1,0 +1,16 @@
+{
+  "// note": "Keep node_modules out of the file watcher, search, and explorer so VS Code doesn't track ~15k dependency files.",
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/frontend/node_modules/**": true,
+    "**/.venv/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/frontend/node_modules": true,
+    "**/.venv": true
+  },
+  "files.exclude": {
+    "**/node_modules": true
+  }
+}
