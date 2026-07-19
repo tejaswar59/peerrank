@@ -38,6 +38,10 @@ class ResendIn(BaseModel):
     email: EmailStr
 
 
+class GoogleIn(BaseModel):
+    credential: str  # the Google ID token (JWT) from the Sign-in button
+
+
 class ForgotIn(BaseModel):
     email: EmailStr
 

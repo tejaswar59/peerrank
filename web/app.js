@@ -49,6 +49,62 @@
   var returnTo = null; // where to go after a login prompt
 
   /* ------------------------------------------------------------------ *
+   * Google Sign-In (Google Identity Services). The button is only shown when
+   * the backend reports a configured client id (GET /api/auth/config).
+   * ------------------------------------------------------------------ */
+  var googleClientId = null; // null = unknown, "" = disabled, "…" = enabled
+
+  function onGoogleCredential(resp) {
+    api("/auth/google", { method: "POST", body: { credential: resp.credential } })
+      .then(function (r) {
+        session.set(r.token, r.role, r.email);
+        toast("Welcome, " + r.email, "ok");
+        var dest = returnTo || (r.role === "admin" ? "#/admin" : "#/home");
+        returnTo = null;
+        go(dest);
+      })
+      .catch(function (err) { toast(err.message, "err"); });
+  }
+
+  function mountGoogleButton(container) {
+    function render() {
+      var g = window.google;
+      if (!container.isConnected || !googleClientId || !(g && g.accounts && g.accounts.id)) return;
+      g.accounts.id.initialize({ client_id: googleClientId, callback: onGoogleCredential });
+      g.accounts.id.renderButton(container, {
+        theme: "outline", size: "large", text: "signin_with", shape: "pill", width: 300,
+      });
+    }
+    function afterConfig() {
+      if (!googleClientId) {
+        // disabled -> hide the "or" divider and the empty placeholder (no gap)
+        var prev = container.previousElementSibling;
+        if (prev && prev.classList.contains("or-sep")) prev.style.display = "none";
+        container.style.display = "none";
+        return;
+      }
+      if (window.google && window.google.accounts && window.google.accounts.id) return render();
+      var s = document.getElementById("gis-script");
+      if (!s) {
+        s = document.createElement("script");
+        s.id = "gis-script";
+        s.src = "https://accounts.google.com/gsi/client";
+        s.async = true;
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+      s.addEventListener("load", render);
+    }
+    if (googleClientId === null) {
+      api("/auth/config")
+        .then(function (c) { googleClientId = c.google_client_id || ""; afterConfig(); })
+        .catch(function () { googleClientId = ""; });
+    } else {
+      afterConfig();
+    }
+  }
+
+  /* ------------------------------------------------------------------ *
    * API client
    * ------------------------------------------------------------------ */
   function api(path, opts) {
@@ -382,11 +438,14 @@
           '<p style="text-align:right;margin:0 0 14px;"><a id="to-forgot" class="link-sm">Forgot password?</a></p>' +
           '<button class="btn primary block" type="submit" id="signin">Sign in</button>' +
         '</form>' +
+        '<div class="or-sep"><span>or</span></div>' +
+        '<div id="google-btn" class="google-btn"></div>' +
         '<p class="auth-switch">New to Peer Rank? <a id="to-signup">Create an account</a></p>' +
       "</div></div>"
     );
     wrap.querySelector("#to-signup").onclick = function () { go("#/signup"); };
     wrap.querySelector("#to-forgot").onclick = function () { go("#/forgot"); };
+    mountGoogleButton(wrap.querySelector("#google-btn"));
     wrap.querySelector("#login-form").onsubmit = function (e) {
       e.preventDefault();
       var btn = wrap.querySelector("#signin");
@@ -445,10 +504,13 @@
           '<input id="su-pw2" type="password" autocomplete="new-password" placeholder="Re-enter your password" /></label>' +
         '<button class="btn primary block" type="submit" id="su-btn">Create account</button>' +
       "</form>" +
+      '<div class="or-sep"><span>or</span></div>' +
+      '<div id="google-btn" class="google-btn"></div>' +
       '<p class="auth-switch">Already have an account? <a id="to-login">Sign in</a></p>'
     );
     card.querySelector("#auth-sub").textContent = "Create your account";
     card.querySelector("#to-login").onclick = function () { go("#/login"); };
+    mountGoogleButton(card.querySelector("#google-btn"));
 
     var role = "member";
     var seg = card.querySelector("#su-role");
