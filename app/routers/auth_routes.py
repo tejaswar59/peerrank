@@ -186,18 +186,22 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @router.post("/forgot", response_model=MessageOut, dependencies=[Depends(_otp_limit)])
 def forgot_password(body: ForgotIn, db: Session = Depends(get_db)):
-    """Request a password-reset code. Enumeration-safe: always returns the same
-    message, and only actually emails a code if a verified account exists."""
+    """Request a password-reset code. Tells the user if the email isn't registered
+    (friendlier UX; note this does reveal which emails have accounts)."""
     email = str(body.email).lower()
     user = db.scalar(select(User).where(User.email == email))
-    if user is not None and user.is_verified:
-        try:
-            _issue_and_send_otp(db, email, purpose="reset")
-        except HTTPException:
-            pass  # send failure is logged in the mailer; don't leak account existence
-    return MessageOut(
-        message="If an account exists for that email, a reset code is on its way."
-    )
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "This email isn't linked to any account — please sign up first.",
+        )
+    if not user.is_verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This email hasn't been verified yet — please finish signing up.",
+        )
+    _issue_and_send_otp(db, email, purpose="reset")
+    return MessageOut(message=f"We sent a reset code to {email}.")
 
 
 @router.post("/reset/check", response_model=MessageOut, dependencies=[Depends(_login_limit)])

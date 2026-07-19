@@ -1131,22 +1131,74 @@
   /* ------------------------------------------------------------------ *
    * VOTER — ballot
    * ------------------------------------------------------------------ */
-  function viewVote(token) {
-    if (!session.isAuthed) { returnTo = "#/vote/" + token; return go("#/login"); }
-    if (session.role === "admin") {
-      shell('<div class="empty">You are signed in as an admin. Admins do not vote in their own rounds.<br><br>' +
-        '<button class="btn" onclick="location.hash=\'#/admin\'">Go to admin</button></div>');
-      return;
+  // Centered message card with an icon and optional action buttons.
+  function centerNotice(iconHtml, title, messageHtml, buttons) {
+    var c = shell("");
+    var wrap = el('<div class="center-state"></div>');
+    wrap.appendChild(el('<div class="notice-badge">' + iconHtml + "</div>"));
+    wrap.appendChild(el("<h3>" + esc(title) + "</h3>"));
+    wrap.appendChild(el('<p class="muted" style="max-width:360px;margin:8px auto 0;">' + messageHtml + "</p>"));
+    if (buttons && buttons.length) {
+      var row = el('<div style="margin-top:20px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;"></div>');
+      buttons.forEach(function (b) {
+        var btn = el('<button class="btn' + (b.primary ? " primary" : "") + '">' + esc(b.label) + "</button>");
+        btn.onclick = b.onClick;
+        row.appendChild(btn);
+      });
+      wrap.appendChild(row);
     }
+    c.appendChild(wrap);
+  }
+
+  function _switchAccount(token) {
+    // Sign out, remember the vote link, and return to it after re-login.
+    session.clear();
+    returnTo = "#/vote/" + token;
+    go("#/login");
+  }
+
+  function viewVote(token) {
+    // Not signed in -> remember this link, send to sign-in, come straight back.
+    if (!session.isAuthed) { returnTo = "#/vote/" + token; return go("#/login"); }
+
+    if (session.role === "admin") {
+      return centerNotice(
+        ICON_ALERT,
+        "Admins don't vote here",
+        "You're signed in as an admin, and admins can't vote in their own rounds. " +
+          "To vote, sign in with a teammate account that's on this team.",
+        [
+          { label: "Go to admin", primary: true, onClick: function () { go("#/admin"); } },
+          { label: "Sign out & vote as a member", onClick: function () { _switchAccount(token); } },
+        ]
+      );
+    }
+
     loading();
     api("/vote/" + token).then(function (page) {
       if (page.status === "closed") return showVoteClosed(token, page);
       if (page.already_voted) return showLocked(page, null);
       renderBallot(token, page);
     }).catch(function (e) {
-      if (e.status === 403) shell('<div class="empty">' + esc(e.message) + "</div>");
-      else if (e.status === 404) shell('<div class="empty">That voting link was not found.</div>');
-      else apiErr(e);
+      if (e.status === 403) {
+        // Signed in, but this email isn't on the team for this round.
+        centerNotice(
+          ICON_ALERT,
+          "You're not on this team",
+          "You're signed in as <b>" + esc(session.email) + "</b>, but that email isn't on " +
+            "the team for this vote. Ask your admin to add you, or sign in with the email you were invited on.",
+          [{ label: "Sign out & use another account", onClick: function () { _switchAccount(token); } }]
+        );
+      } else if (e.status === 404) {
+        centerNotice(
+          ICON_ALERT,
+          "Voting link not found",
+          "This voting link is invalid, or the round was removed by the admin.",
+          [{ label: "Go to sign in", onClick: function () { go("#/login"); } }]
+        );
+      } else {
+        apiErr(e);
+      }
     });
   }
 

@@ -4,7 +4,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models
-from .config import settings
 from .models import utcnow
 from .scoring import compute_ranking
 
@@ -16,11 +15,6 @@ def ballot_count(db: Session, round_id: int) -> int:
             models.Ballot.round_id == round_id
         )
     ) or 0
-
-
-def results_are_visible(db: Session, round_id: int) -> bool:
-    """Anonymity floor: only reveal a leaderboard once enough people voted."""
-    return ballot_count(db, round_id) >= settings.min_result_voters
 
 
 def compute_and_freeze(db: Session, round_id: int) -> models.ResultSnapshot:

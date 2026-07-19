@@ -19,11 +19,6 @@ class Settings(BaseSettings):
     # How often the auto-close sweep runs (seconds).
     sweep_interval_seconds: int = 60
 
-    # Anonymity floor: a leaderboard is only revealed once at least this many
-    # people have voted. With 1–2 ballots on a small team, the ranking could
-    # leak how an individual voted, so results stay hidden below this count.
-    min_result_voters: int = 3
-
     # Rate limits (per client IP, fixed window). Tunable without code changes.
     login_rate_max: int = 10
     login_rate_window: int = 60

@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..auth import SessionUser, require_admin
-from ..config import settings
 from ..database import get_db
 from ..results import ballot_count, close_round
 from ..schemas import (
@@ -343,11 +342,10 @@ def close_round_early(
     # anonymity floor. Returning it here would bypass that gate.
     rnd = _get_round(db, round_id)
     close_round(db, rnd, admin.email)
-    votes = ballot_count(db, round_id)
     return {
         "status": "closed",
-        "votes": votes,
-        "results_visible": votes >= settings.min_result_voters,
+        "votes": ballot_count(db, round_id),
+        "results_visible": True,  # results are shown as soon as a round is closed
     }
 
 
@@ -389,15 +387,6 @@ def get_results(round_id: int, db: Session = Depends(get_db)):
     if snapshot is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Results not available until the round is closed"
-        )
-    # Anonymity floor: don't reveal a leaderboard that could expose an individual.
-    votes = ballot_count(db, round_id)
-    if votes < settings.min_result_voters:
-        so_far = f"{votes} {'person has' if votes == 1 else 'people have'} voted so far."
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Results stay hidden until at least {settings.min_result_voters} "
-            f"teammates vote — protects who ranked whom. {so_far}",
         )
     return ResultOut(
         round_id=round_id, computed_at=snapshot.computed_at, ranking=snapshot.ranked_output
