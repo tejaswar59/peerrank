@@ -27,6 +27,7 @@ def run_sweep_once() -> int:
             select(models.VotingRound).where(
                 models.VotingRound.status == "open",
                 models.VotingRound.end_at <= now,
+                models.VotingRound.deleted_at.is_(None),
             )
         ).all()
         for rnd in expired:

@@ -55,6 +55,8 @@ class Project(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Soft delete: set instead of removing the row, so data is retained/auditable.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     teams: Mapped[list["Team"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -75,6 +77,7 @@ class Team(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     project: Mapped["Project"] = relationship(back_populates="teams")
     members: Mapped[list["TeamMember"]] = relationship(
@@ -95,6 +98,7 @@ class TeamMember(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     team: Mapped["Team"] = relationship(back_populates="members")
 
@@ -117,6 +121,7 @@ class VotingRound(Base):
     # "open" | "closed"
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     project: Mapped["Project"] = relationship(back_populates="rounds")
     team: Mapped["Team"] = relationship()

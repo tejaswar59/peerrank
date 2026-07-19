@@ -39,7 +39,10 @@ def compute_and_freeze(db: Session, round_id: int) -> models.ResultSnapshot:
 
     members = db.scalars(
         select(models.TeamMember)
-        .where(models.TeamMember.team_id == rnd.team_id)
+        .where(
+            models.TeamMember.team_id == rnd.team_id,
+            models.TeamMember.deleted_at.is_(None),
+        )
         .order_by(models.TeamMember.id)
     ).all()
     member_ids = [m.id for m in members]
