@@ -38,6 +38,16 @@ class ResendIn(BaseModel):
     email: EmailStr
 
 
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+
+class ResetIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=1, max_length=12)
+    new_password: str = Field(min_length=1)  # length checked server-side vs config
+
+
 class MessageOut(BaseModel):
     message: str
 
