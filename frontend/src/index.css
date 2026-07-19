@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   Peer Rank — design system
+   Dark, spatial, glass. Emerald→teal→cyan→electric→violet with gold accents.
+   ========================================================================== */
+
+@layer base {
+  :root {
+    --bg: #04060a;
+    --panel: 255 255 255; /* rgb, used with alpha */
+    --hair: 255 255 255;
+    --emerald: 16 185 129;
+    --teal: 20 184 166;
+    --cyan: 34 211 238;
+    --electric: 59 130 246;
+    --violet: 139 92 246;
+    --gold: 245 213 128;
+    --text: 233 238 245;
+    --muted: 148 163 184;
+    --faint: 100 116 139;
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: rgb(var(--text));
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+    /* Native controls (date/time pickers, checkboxes) inherit our accent + dark
+       scheme, so the browser popups match the theme. */
+    accent-color: rgb(var(--teal));
+  }
+
+  /* Force the native date/time picker popups into dark mode + teal accent. */
+  input[type="datetime-local"],
+  input[type="date"],
+  input[type="time"] {
+    color-scheme: dark;
+    accent-color: rgb(var(--teal));
+  }
+  /* Nudge the calendar/clock indicator icon toward the theme. */
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) sepia(1) saturate(4) hue-rotate(120deg);
+    opacity: 0.7;
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: rgba(var(--teal), 0.32);
+    color: #fff;
+  }
+
+  /* Custom scrollbar — thin, glassy. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--teal), 0.4);
+    background-clip: padding-box;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: "Clash Display", "Inter", system-ui, sans-serif;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+
+  /* Autofill: keep it dark & glassy. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: rgb(var(--text));
+    -webkit-box-shadow: 0 0 0 1000px rgba(10, 14, 22, 0.9) inset;
+    caret-color: rgb(var(--text));
+    transition: background-color 9999s ease-out;
+  }
+}
+
+@layer components {
+  /* ---------- glass surfaces ---------- */
+  .glass {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0.02)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(22px) saturate(1.5);
+    -webkit-backdrop-filter: blur(22px) saturate(1.5);
+    box-shadow: 0 8px 40px -12px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+  .glass-strong {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.09),
+      rgba(255, 255, 255, 0.035)
+    );
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    backdrop-filter: blur(30px) saturate(1.6);
+    -webkit-backdrop-filter: blur(30px) saturate(1.6);
+    box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* An animated gradient hairline border wrapper. */
+  .gradient-border {
+    position: relative;
+    isolation: isolate;
+  }
+  .gradient-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(var(--teal), 0.7),
+      rgba(var(--cyan), 0.35),
+      rgba(var(--violet), 0.55)
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.55;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .gradient-border:hover::before {
+    opacity: 1;
+  }
+
+  /* Text gradient. */
+  .text-gradient {
+    background: linear-gradient(
+      100deg,
+      #ffffff 0%,
+      rgb(var(--cyan)) 45%,
+      rgb(var(--teal)) 70%,
+      rgb(var(--violet)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .text-gold {
+    background: linear-gradient(100deg, #fff2cf, var(--tw-gold, #f5d580) 60%, #d8a94a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Noise overlay — subtle film grain over the whole app. */
+  .noise::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Focus ring used across interactive elements. */
+  .ring-focus:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(var(--cyan), 0.65), 0 0 0 6px rgba(var(--cyan), 0.18);
+  }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+  .drag-none {
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+  .tabnums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Respect users who prefer reduced motion (OS-level or the in-app toggle). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
