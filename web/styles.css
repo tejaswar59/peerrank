@@ -304,6 +304,11 @@ table.part tr:last-child td { border-bottom: none; }
 .center-state { text-align: center; padding: 44px 20px; }
 .center-state .glyph { font-size: 40px; }
 .center-state h3 { font-size: 17px; margin: 14px 0 4px; }
+.notice-badge {
+  width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--amber-bg); color: var(--amber-text);
+}
+.notice-badge svg { width: 26px; height: 26px; }
 .empty { text-align: center; color: var(--ink-soft); font-size: 14px; padding: 28px 10px; border: 1px dashed var(--line); border-radius: var(--radius-lg); }
 
 /* ---------- vote-locked confirmation ---------- */

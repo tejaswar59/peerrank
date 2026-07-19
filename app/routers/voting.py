@@ -14,7 +14,6 @@ from ..config import settings
 from ..database import get_db
 from ..models import utcnow
 from ..ratelimit import rate_limit
-from ..results import ballot_count
 from ..schemas import (
     BallotIn,
     CandidateOut,
@@ -149,14 +148,6 @@ def voter_results(
     )
     if snapshot is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Results not computed yet")
-    votes = ballot_count(db, rnd.id)
-    if votes < settings.min_result_voters:
-        so_far = f"{votes} {'person has' if votes == 1 else 'people have'} voted so far."
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Results stay hidden until at least {settings.min_result_voters} "
-            f"teammates vote. {so_far}",
-        )
     return ResultOut(
         round_id=rnd.id, computed_at=snapshot.computed_at, ranking=snapshot.ranked_output
     )

@@ -585,26 +585,59 @@
   function viewReset() {
     if (!pendingReset) return go("#/forgot");
     var email = pendingReset.email;
+    resetStepCode(email);
+  }
+
+  // Step 1 — enter and verify the 6-digit code.
+  function resetStepCode(email) {
     var card = authShell(
-      '<p class="verify-note">Enter the 6-digit code sent to <b>' + esc(email) + "</b> and choose a new password.</p>" +
+      '<p class="verify-note">Enter the 6-digit code sent to <b>' + esc(email) + "</b></p>" +
       '<div id="rs-otp"></div>' +
-      '<label class="field" style="margin-top:16px;"><span class="lbl">New password</span>' +
+      '<button class="btn primary block" id="rs-continue" style="margin-top:18px;">Continue</button>' +
+      '<p class="auth-switch"><a id="rs-resend">Resend code</a> &middot; <a id="rs-back">Use a different email</a></p>'
+    );
+    card.querySelector("#auth-sub").textContent = "Reset your password";
+
+    var verifying = false;
+    function checkCode() {
+      var code = otp.value();
+      if (code.length !== 6 || verifying) return;
+      verifying = true;
+      var btn = card.querySelector("#rs-continue"); busy(btn, true);
+      api("/auth/reset/check", { method: "POST", body: { email: email, code: code } })
+        .then(function () { resetStepPassword(email, code); })   // code good -> ask for password
+        .catch(function (err) { verifying = false; busy(btn, false); toast(err.message, "err"); });
+    }
+
+    var otp = otpBoxes(function () { checkCode(); });  // auto-check when 6 digits entered
+    card.querySelector("#rs-otp").appendChild(otp.el);
+    setTimeout(function () { otp.focus(); }, 30);
+    card.querySelector("#rs-continue").onclick = checkCode;
+    card.querySelector("#rs-back").onclick = function () { pendingReset = null; go("#/forgot"); };
+    card.querySelector("#rs-resend").onclick = function () {
+      api("/auth/forgot", { method: "POST", body: { email: email } })
+        .then(function (r) { toast(r.message, "ok"); })
+        .catch(function (err) { toast(err.message, "err"); });
+    };
+  }
+
+  // Step 2 — code is verified; choose the new password.
+  function resetStepPassword(email, code) {
+    var card = authShell(
+      '<p class="verify-note">Code verified ✓ — choose a new password for <b>' + esc(email) + "</b></p>" +
+      '<label class="field"><span class="lbl">New password</span>' +
         '<input id="rs-pw" type="password" autocomplete="new-password" placeholder="New password (min 8 characters)" /></label>' +
       '<label class="field"><span class="lbl">Confirm new password</span>' +
         '<input id="rs-pw2" type="password" autocomplete="new-password" placeholder="Re-enter new password" /></label>' +
       '<button class="btn primary block" id="rs-btn">Reset password</button>' +
-      '<p class="auth-switch"><a id="rs-resend">Resend code</a> &middot; <a id="rs-back">Use a different email</a></p>'
+      '<p class="auth-switch"><a id="rs-recode">Re-enter code</a></p>'
     );
     card.querySelector("#auth-sub").textContent = "Reset your password";
-    var otp = otpBoxes();
-    card.querySelector("#rs-otp").appendChild(otp.el);
-    setTimeout(function () { otp.focus(); }, 30);
+    setTimeout(function () { card.querySelector("#rs-pw").focus(); }, 30);
 
     card.querySelector("#rs-btn").onclick = function () {
-      var code = otp.value();
       var pw = card.querySelector("#rs-pw").value;
       var pw2 = card.querySelector("#rs-pw2").value;
-      if (code.length !== 6) return toast("Enter the 6-digit code", "err");
       if (pw.length < 8) return toast("Password must be at least 8 characters", "err");
       if (pw !== pw2) return toast("Passwords don't match", "err");
       var btn = card.querySelector("#rs-btn"); busy(btn, true);
@@ -615,14 +648,13 @@
           toast("Password updated — you're signed in", "ok");
           go(r.role === "admin" ? "#/admin" : "#/home");
         })
-        .catch(function (err) { busy(btn, false); toast(err.message, "err"); });
+        .catch(function (err) {
+          busy(btn, false);
+          toast(err.message, "err");
+          if (err.status === 400) resetStepCode(email);  // code expired/invalid -> back to step 1
+        });
     };
-    card.querySelector("#rs-back").onclick = function () { pendingReset = null; go("#/forgot"); };
-    card.querySelector("#rs-resend").onclick = function () {
-      api("/auth/forgot", { method: "POST", body: { email: email } })
-        .then(function (r) { toast(r.message, "ok"); })
-        .catch(function (err) { toast(err.message, "err"); });
-    };
+    card.querySelector("#rs-recode").onclick = function () { resetStepCode(email); };
   }
 
   /* ------------------------------------------------------------------ *
@@ -1099,22 +1131,74 @@
   /* ------------------------------------------------------------------ *
    * VOTER — ballot
    * ------------------------------------------------------------------ */
-  function viewVote(token) {
-    if (!session.isAuthed) { returnTo = "#/vote/" + token; return go("#/login"); }
-    if (session.role === "admin") {
-      shell('<div class="empty">You are signed in as an admin. Admins do not vote in their own rounds.<br><br>' +
-        '<button class="btn" onclick="location.hash=\'#/admin\'">Go to admin</button></div>');
-      return;
+  // Centered message card with an icon and optional action buttons.
+  function centerNotice(iconHtml, title, messageHtml, buttons) {
+    var c = shell("");
+    var wrap = el('<div class="center-state"></div>');
+    wrap.appendChild(el('<div class="notice-badge">' + iconHtml + "</div>"));
+    wrap.appendChild(el("<h3>" + esc(title) + "</h3>"));
+    wrap.appendChild(el('<p class="muted" style="max-width:360px;margin:8px auto 0;">' + messageHtml + "</p>"));
+    if (buttons && buttons.length) {
+      var row = el('<div style="margin-top:20px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;"></div>');
+      buttons.forEach(function (b) {
+        var btn = el('<button class="btn' + (b.primary ? " primary" : "") + '">' + esc(b.label) + "</button>");
+        btn.onclick = b.onClick;
+        row.appendChild(btn);
+      });
+      wrap.appendChild(row);
     }
+    c.appendChild(wrap);
+  }
+
+  function _switchAccount(token) {
+    // Sign out, remember the vote link, and return to it after re-login.
+    session.clear();
+    returnTo = "#/vote/" + token;
+    go("#/login");
+  }
+
+  function viewVote(token) {
+    // Not signed in -> remember this link, send to sign-in, come straight back.
+    if (!session.isAuthed) { returnTo = "#/vote/" + token; return go("#/login"); }
+
+    if (session.role === "admin") {
+      return centerNotice(
+        ICON_ALERT,
+        "Admins don't vote here",
+        "You're signed in as an admin, and admins can't vote in their own rounds. " +
+          "To vote, sign in with a teammate account that's on this team.",
+        [
+          { label: "Go to admin", primary: true, onClick: function () { go("#/admin"); } },
+          { label: "Sign out & vote as a member", onClick: function () { _switchAccount(token); } },
+        ]
+      );
+    }
+
     loading();
     api("/vote/" + token).then(function (page) {
       if (page.status === "closed") return showVoteClosed(token, page);
       if (page.already_voted) return showLocked(page, null);
       renderBallot(token, page);
     }).catch(function (e) {
-      if (e.status === 403) shell('<div class="empty">' + esc(e.message) + "</div>");
-      else if (e.status === 404) shell('<div class="empty">That voting link was not found.</div>');
-      else apiErr(e);
+      if (e.status === 403) {
+        // Signed in, but this email isn't on the team for this round.
+        centerNotice(
+          ICON_ALERT,
+          "You're not on this team",
+          "You're signed in as <b>" + esc(session.email) + "</b>, but that email isn't on " +
+            "the team for this vote. Ask your admin to add you, or sign in with the email you were invited on.",
+          [{ label: "Sign out & use another account", onClick: function () { _switchAccount(token); } }]
+        );
+      } else if (e.status === 404) {
+        centerNotice(
+          ICON_ALERT,
+          "Voting link not found",
+          "This voting link is invalid, or the round was removed by the admin.",
+          [{ label: "Go to sign in", onClick: function () { go("#/login"); } }]
+        );
+      } else {
+        apiErr(e);
+      }
     });
   }
 

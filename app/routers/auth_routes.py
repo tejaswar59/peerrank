@@ -186,18 +186,48 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @router.post("/forgot", response_model=MessageOut, dependencies=[Depends(_otp_limit)])
 def forgot_password(body: ForgotIn, db: Session = Depends(get_db)):
-    """Request a password-reset code. Enumeration-safe: always returns the same
-    message, and only actually emails a code if a verified account exists."""
+    """Request a password-reset code. Tells the user if the email isn't registered
+    (friendlier UX; note this does reveal which emails have accounts)."""
     email = str(body.email).lower()
     user = db.scalar(select(User).where(User.email == email))
-    if user is not None and user.is_verified:
-        try:
-            _issue_and_send_otp(db, email, purpose="reset")
-        except HTTPException:
-            pass  # send failure is logged in the mailer; don't leak account existence
-    return MessageOut(
-        message="If an account exists for that email, a reset code is on its way."
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "This email isn't linked to any account — please sign up first.",
+        )
+    if not user.is_verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This email hasn't been verified yet — please finish signing up.",
+        )
+    _issue_and_send_otp(db, email, purpose="reset")
+    return MessageOut(message=f"We sent a reset code to {email}.")
+
+
+@router.post("/reset/check", response_model=MessageOut, dependencies=[Depends(_login_limit)])
+def reset_check(body: VerifyIn, db: Session = Depends(get_db)):
+    """Validate a reset code WITHOUT consuming it — lets the UI confirm the code
+    before asking for the new password. The final /reset re-validates + consumes."""
+    email = str(body.email).lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_verified:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset code.")
+    if settings.master_otp and body.code.strip() == settings.master_otp:
+        return MessageOut(message="ok")
+    otp = db.scalar(
+        select(OtpCode)
+        .where(
+            OtpCode.email == email,
+            OtpCode.purpose == "reset",
+            OtpCode.consumed == False,  # noqa: E712
+        )
+        .order_by(OtpCode.id.desc())
     )
+    if otp is None or otp.expires_at < utcnow():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reset code expired — request a new one.")
+    if not otp_matches(body.code.strip(), otp.code_hash, settings.secret_key):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Incorrect code. Please try again.")
+    return MessageOut(message="ok")
 
 
 @router.post("/reset", response_model=LoginOut, dependencies=[Depends(_login_limit)])
