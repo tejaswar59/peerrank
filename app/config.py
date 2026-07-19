@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     otp_ttl_seconds: int = 600     # 10 minutes
     otp_max_attempts: int = 5
 
+    # Google Sign-In. Set to your OAuth 2.0 Web client ID (…apps.googleusercontent.com).
+    # Empty -> the "Sign in with Google" button is hidden and the endpoint is off.
+    google_client_id: str = ""
+
     # DEV master OTP: when set, this code verifies ANY email without the real
     # emailed code — a bypass so sign-up works before SMTP is wired up.
     # SECURITY: it lets anyone verify any address. MUST be cleared (MASTER_OTP="")
