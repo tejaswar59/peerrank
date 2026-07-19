@@ -315,15 +315,18 @@ def google_login(body: GoogleIn, db: Session = Depends(get_db)):
 
     email = info["email"].lower()
     name = info.get("name") or email.split("@")[0]
+    # Role comes from the signup toggle (Admin / Team member). Only honoured when
+    # CREATING the account; an existing account keeps whatever role it already has.
+    role = body.role if body.role in ("admin", "member") else "member"
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
-        # New Google user — create a verified member account (random unusable
-        # password; they can set one later via "forgot password" if they want).
+        # New Google user — create a verified account (random unusable password;
+        # they can set one later via "forgot password" if they want).
         user = User(
             email=email,
             password_hash=hash_password(secrets.token_urlsafe(24)),
             display_name=name,
-            role="member",
+            role=role,
             is_verified=True,
         )
         db.add(user)

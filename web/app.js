@@ -55,7 +55,11 @@
   var googleClientId = null; // null = unknown, "" = disabled, "…" = enabled
 
   function onGoogleCredential(resp) {
-    api("/auth/google", { method: "POST", body: { credential: resp.credential } })
+    // Role only matters for NEW accounts; taken from the signup toggle if present
+    // (the login page has no toggle, so it stays null -> backend defaults member).
+    var seg = document.getElementById("su-role");
+    var role = seg ? seg.getAttribute("data-active") : null;
+    api("/auth/google", { method: "POST", body: { credential: resp.credential, role: role } })
       .then(function (r) {
         session.set(r.token, r.role, r.email);
         toast("Welcome, " + r.email, "ok");
