@@ -60,7 +60,11 @@
       headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     }).then(function (res) {
-      if (res.status === 401) {
+      // A 401 means "session expired" ONLY when we actually sent a token on a
+      // non-auth request. On the auth endpoints (login/verify) a 401 is just
+      // bad credentials — let the caller show the real message.
+      var isAuthEndpoint = path.indexOf("/auth/") === 0;
+      if (res.status === 401 && session.token && !isAuthEndpoint) {
         session.clear();
         toast("Your session has ended. Please sign in again to continue.", "err");
         go("#/login");
@@ -425,7 +429,7 @@
     var card = authShell(
       '<form id="su-form">' +
         '<div class="field"><span class="lbl">I\'m signing up as</span>' +
-          '<div class="seg" id="su-role">' +
+          '<div class="seg" id="su-role" data-active="member">' +
             '<button type="button" data-role="member" class="active">Team member</button>' +
             '<button type="button" data-role="admin">Admin</button>' +
           "</div></div>" +
@@ -449,6 +453,7 @@
     seg.querySelectorAll("button").forEach(function (b) {
       b.onclick = function () {
         role = b.getAttribute("data-role");
+        seg.setAttribute("data-active", role);   // slides the highlight
         seg.querySelectorAll("button").forEach(function (x) { x.classList.remove("active"); });
         b.classList.add("active");
       };
