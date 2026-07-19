@@ -72,11 +72,19 @@ def create_project(
 
 @router.get("/projects", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db)):
-    return db.scalars(select(models.Project).order_by(models.Project.id)).all()
+    return db.scalars(
+        select(models.Project)
+        .where(models.Project.deleted_at.is_(None))
+        .order_by(models.Project.id)
+    ).all()
 
 
 def _get_project(db: Session, project_id: int) -> models.Project:
-    project = db.get(models.Project, project_id)
+    project = db.scalar(
+        select(models.Project).where(
+            models.Project.id == project_id, models.Project.deleted_at.is_(None)
+        )
+    )
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     return project
@@ -87,14 +95,15 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
     return _get_project(db, project_id)
 
 
-def _purge_rounds(db: Session, round_ids: list[int]) -> None:
-    """Hard-delete a set of rounds and everything hanging off them."""
-    if not round_ids:
+def _soft_delete_teams(db: Session, team_ids: list[int], now) -> None:
+    """Mark teams and their members as deleted (data is retained)."""
+    if not team_ids:
         return
-    for model in (models.Ballot, models.ParticipationLog, models.ResultSnapshot):
-        db.query(model).filter(model.round_id.in_(round_ids)).delete(synchronize_session=False)
-    db.query(models.VotingRound).filter(models.VotingRound.id.in_(round_ids)).delete(
-        synchronize_session=False
+    db.query(models.TeamMember).filter(models.TeamMember.team_id.in_(team_ids)).update(
+        {"deleted_at": now}, synchronize_session=False
+    )
+    db.query(models.Team).filter(models.Team.id.in_(team_ids)).update(
+        {"deleted_at": now}, synchronize_session=False
     )
 
 
@@ -104,26 +113,20 @@ def delete_project(
     db: Session = Depends(get_db),
     admin: SessionUser = Depends(require_admin),
 ):
-    """Permanently delete a project and all its teams, rounds, and results."""
+    """Soft-delete a project and all its teams, members, and rounds. Rows are
+    kept in the database (deleted_at is stamped) and hidden from the app —
+    ballots/participation are never touched."""
     _get_project(db, project_id)
-    round_ids = list(
-        db.scalars(select(models.VotingRound.id).where(models.VotingRound.project_id == project_id))
+    now = models.utcnow()
+    db.query(models.VotingRound).filter(models.VotingRound.project_id == project_id).update(
+        {"deleted_at": now}, synchronize_session=False
     )
-    _purge_rounds(db, round_ids)
-    team_ids = list(
-        db.scalars(select(models.Team.id).where(models.Team.project_id == project_id))
+    team_ids = list(db.scalars(select(models.Team.id).where(models.Team.project_id == project_id)))
+    _soft_delete_teams(db, team_ids, now)
+    db.query(models.Project).filter(models.Project.id == project_id).update(
+        {"deleted_at": now}, synchronize_session=False
     )
-    if team_ids:
-        db.query(models.TeamMember).filter(models.TeamMember.team_id.in_(team_ids)).delete(
-            synchronize_session=False
-        )
-    db.query(models.Team).filter(models.Team.project_id == project_id).delete(
-        synchronize_session=False
-    )
-    db.query(models.Project).filter(models.Project.id == project_id).delete(
-        synchronize_session=False
-    )
-    _audit(db, admin.email, "project.delete", f"project={project_id}")
+    _audit(db, admin.email, "project.delete", f"project={project_id} (soft)")
     db.commit()
 
 
@@ -154,16 +157,42 @@ def create_team(
     return team
 
 
-@router.get("/projects/{project_id}/teams", response_model=list[TeamOut])
-def list_teams(project_id: int, db: Session = Depends(get_db)):
-    _get_project(db, project_id)
+def _active_members(db: Session, team_id: int) -> list[models.TeamMember]:
     return db.scalars(
-        select(models.Team).where(models.Team.project_id == project_id).order_by(models.Team.id)
+        select(models.TeamMember)
+        .where(models.TeamMember.team_id == team_id, models.TeamMember.deleted_at.is_(None))
+        .order_by(models.TeamMember.id)
     ).all()
 
 
+@router.get("/projects/{project_id}/teams", response_model=list[TeamOut])
+def list_teams(project_id: int, db: Session = Depends(get_db)):
+    _get_project(db, project_id)
+    teams = db.scalars(
+        select(models.Team)
+        .where(models.Team.project_id == project_id, models.Team.deleted_at.is_(None))
+        .order_by(models.Team.id)
+    ).all()
+    # Build explicitly so soft-deleted members are excluded from the response.
+    return [
+        TeamOut(
+            id=t.id,
+            name=t.name,
+            members=[
+                MemberOut(id=m.id, email=m.email, display_name=m.display_name)
+                for m in _active_members(db, t.id)
+            ],
+        )
+        for t in teams
+    ]
+
+
 def _get_team(db: Session, team_id: int) -> models.Team:
-    team = db.get(models.Team, team_id)
+    team = db.scalar(
+        select(models.Team).where(
+            models.Team.id == team_id, models.Team.deleted_at.is_(None)
+        )
+    )
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
     return team
@@ -175,17 +204,14 @@ def delete_team(
     db: Session = Depends(get_db),
     admin: SessionUser = Depends(require_admin),
 ):
-    """Permanently delete a team, its members, and any rounds that used it."""
+    """Soft-delete a team, its members, and any rounds that used it (rows kept)."""
     _get_team(db, team_id)
-    round_ids = list(
-        db.scalars(select(models.VotingRound.id).where(models.VotingRound.team_id == team_id))
+    now = models.utcnow()
+    db.query(models.VotingRound).filter(models.VotingRound.team_id == team_id).update(
+        {"deleted_at": now}, synchronize_session=False
     )
-    _purge_rounds(db, round_ids)
-    db.query(models.TeamMember).filter(models.TeamMember.team_id == team_id).delete(
-        synchronize_session=False
-    )
-    db.query(models.Team).filter(models.Team.id == team_id).delete(synchronize_session=False)
-    _audit(db, admin.email, "team.delete", f"team={team_id}")
+    _soft_delete_teams(db, [team_id], now)
+    _audit(db, admin.email, "team.delete", f"team={team_id} (soft)")
     db.commit()
 
 
@@ -198,17 +224,23 @@ def add_member(
 ):
     team = _get_team(db, team_id)
     addr = str(body.email).lower()
-    exists = db.scalar(
-        select(models.TeamMember.id).where(
+    display = body.display_name or addr.split("@")[0]
+    # There may be an existing row for this (team, email) — the uq constraint keeps
+    # one per pair. Reuse it: 409 if it's active, otherwise reactivate it.
+    existing = db.scalar(
+        select(models.TeamMember).where(
             models.TeamMember.team_id == team_id, models.TeamMember.email == addr
         )
     )
-    if exists:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Member already on team")
-    member = models.TeamMember(
-        team_id=team.id, email=addr, display_name=body.display_name or addr.split("@")[0]
-    )
-    db.add(member)
+    if existing is not None:
+        if existing.deleted_at is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Member already on team")
+        existing.deleted_at = None            # reactivate a previously-removed member
+        existing.display_name = display
+        member = existing
+    else:
+        member = models.TeamMember(team_id=team.id, email=addr, display_name=display)
+        db.add(member)
     _audit(db, admin.email, "member.add", f"team={team_id} email={addr}")
     db.commit()
     db.refresh(member)
@@ -222,11 +254,17 @@ def remove_member(
     db: Session = Depends(get_db),
     admin: SessionUser = Depends(require_admin),
 ):
-    member = db.get(models.TeamMember, member_id)
-    if member is None or member.team_id != team_id:
+    member = db.scalar(
+        select(models.TeamMember).where(
+            models.TeamMember.id == member_id,
+            models.TeamMember.team_id == team_id,
+            models.TeamMember.deleted_at.is_(None),
+        )
+    )
+    if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
-    db.delete(member)
-    _audit(db, admin.email, "member.remove", f"team={team_id} id={member_id}")
+    member.deleted_at = models.utcnow()  # soft delete — row retained
+    _audit(db, admin.email, "member.remove", f"team={team_id} id={member_id} (soft)")
     db.commit()
 
 
@@ -242,7 +280,7 @@ def create_round(
     team = _get_team(db, body.team_id)
     if team.project_id != project_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "That team doesn't belong to this project.")
-    if not team.members:
+    if not _active_members(db, team.id):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Add at least one member to the team before opening a round."
         )
@@ -275,13 +313,20 @@ def list_rounds(project_id: int, db: Session = Depends(get_db)):
     _get_project(db, project_id)
     return db.scalars(
         select(models.VotingRound)
-        .where(models.VotingRound.project_id == project_id)
+        .where(
+            models.VotingRound.project_id == project_id,
+            models.VotingRound.deleted_at.is_(None),
+        )
         .order_by(models.VotingRound.id.desc())
     ).all()
 
 
 def _get_round(db: Session, round_id: int) -> models.VotingRound:
-    rnd = db.get(models.VotingRound, round_id)
+    rnd = db.scalar(
+        select(models.VotingRound).where(
+            models.VotingRound.id == round_id, models.VotingRound.deleted_at.is_(None)
+        )
+    )
     if rnd is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Round not found")
     return rnd
@@ -310,11 +355,7 @@ def close_round_early(
 def participation(round_id: int, db: Session = Depends(get_db)):
     """Aggregate counts + per-email voted flag. WHO voted, never WHAT they voted."""
     rnd = _get_round(db, round_id)
-    members = db.scalars(
-        select(models.TeamMember)
-        .where(models.TeamMember.team_id == rnd.team_id)
-        .order_by(models.TeamMember.id)
-    ).all()
+    members = _active_members(db, rnd.team_id)
     voted_emails = set(
         db.scalars(
             select(models.ParticipationLog.email).where(

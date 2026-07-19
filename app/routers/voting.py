@@ -27,7 +27,10 @@ router = APIRouter(prefix="/api/vote", tags=["voting"])
 
 def _round_by_token(db: Session, token: str) -> models.VotingRound:
     rnd = db.scalar(
-        select(models.VotingRound).where(models.VotingRound.vote_token == token)
+        select(models.VotingRound).where(
+            models.VotingRound.vote_token == token,
+            models.VotingRound.deleted_at.is_(None),  # a deleted round's link is dead
+        )
     )
     if rnd is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Voting link not found")
@@ -37,7 +40,10 @@ def _round_by_token(db: Session, token: str) -> models.VotingRound:
 def _roster(db: Session, team_id: int) -> list[models.TeamMember]:
     return db.scalars(
         select(models.TeamMember)
-        .where(models.TeamMember.team_id == team_id)
+        .where(
+            models.TeamMember.team_id == team_id,
+            models.TeamMember.deleted_at.is_(None),
+        )
         .order_by(models.TeamMember.id)
     ).all()
 
