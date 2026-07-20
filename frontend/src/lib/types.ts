@@ -87,3 +87,18 @@ export interface ResultOut {
   computed_at: string;
   ranking: ResultRow[];
 }
+
+// GET /api/auth/history — the signed-in member's finished rounds + their rank.
+export interface HistoryEntry {
+  round_id: number;
+  project_name: string;
+  team_name: string;
+  round_name: string;
+  rank: number;
+  points: number;
+  total: number;
+  computed_at: string | null;
+  end_at: string | null;
+  ranking: ResultRow[]; // full frozen leaderboard for the round
+  member_id: number; // this member's row id, to highlight "you"
+}

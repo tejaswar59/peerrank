@@ -10,6 +10,7 @@ import {
   LinkIcon,
   CheckCircle2,
   ArrowUp,
+  Home,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { VotePage, Candidate, ResultOut } from "@/lib/types";
@@ -19,6 +20,8 @@ import { Button } from "@/components/ui/Button";
 import { OrbLoader, Avatar } from "@/components/ui/Bits";
 import GlassCard from "@/components/ui/GlassCard";
 import { Countdown } from "@/components/ui/Countdown";
+import { parseUTC } from "@/lib/format";
+import { homeFor } from "@/routes/guards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { Wordmark } from "@/components/Brand";
 import { toast } from "@/components/Toast";
@@ -33,12 +36,34 @@ type Phase =
   | { k: "admin" };
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const s = useSession();
+  const navigate = useNavigate();
   return (
     <div className="relative z-[2] mx-auto min-h-screen w-full max-w-2xl px-4 py-10">
       <div className="mb-8 flex justify-center">
-        <Wordmark size={34} />
+        <button
+          onClick={() => s.token && navigate(homeFor(s.role))}
+          className="ring-focus rounded-xl"
+          aria-label="Peer Rank home"
+        >
+          <Wordmark size={34} />
+        </button>
       </div>
       {children}
+    </div>
+  );
+}
+
+// A "back to home" button for the post-vote screens (member → /home).
+function BackHome() {
+  const s = useSession();
+  const navigate = useNavigate();
+  if (!s.token) return null;
+  return (
+    <div className="mt-6 flex justify-center">
+      <Button variant="glass" leftIcon={<Home className="h-[18px] w-[18px]" />} onClick={() => navigate(homeFor(s.role))}>
+        Back to home
+      </Button>
     </div>
   );
 }
@@ -115,6 +140,18 @@ export default function Vote() {
     if (!s.token || s.role === "admin") return;
     load();
   }, [s.token, s.role, load]);
+
+  // Auto-reveal: once a voter has locked in and the round's window elapses,
+  // poll so the screen flips from "Ballot locked in" to the results podium the
+  // moment the round closes (server auto-close sweep may lag a few seconds).
+  useEffect(() => {
+    if (phase.k !== "locked") return;
+    const end = parseUTC(phase.page.end_at)?.getTime() ?? 0;
+    const id = setInterval(() => {
+      if (Date.now() >= end) load();
+    }, 15000);
+    return () => clearInterval(id);
+  }, [phase, load]);
 
   // Auth gate — send to login, remember where we were headed.
   if (!s.token) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -278,6 +315,7 @@ function LockedView({ page }: { page: VotePage }) {
       <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-[13px] text-white/60">
         <Lock className="h-3.5 w-3.5" /> Results <Countdown end={page.end_at} />
       </div>
+      <BackHome />
     </motion.div>
   );
 }
@@ -301,6 +339,7 @@ function ClosedView({ page, results }: { page: VotePage; results: ResultOut | nu
           </p>
         )}
       </GlassCard>
+      <BackHome />
     </motion.div>
   );
 }
