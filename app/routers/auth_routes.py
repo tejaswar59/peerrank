@@ -18,14 +18,23 @@ import urllib.request
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import SessionUser, authenticate, current_user, issue_token
 from ..config import settings
 from ..database import get_db
 from ..mailer import send_otp_email
-from ..models import OtpCode, User, utcnow
+from ..models import (
+    OtpCode,
+    Project,
+    ResultSnapshot,
+    Team,
+    TeamMember,
+    User,
+    VotingRound,
+    utcnow,
+)
 from ..ratelimit import rate_limit
 from ..security import generate_otp, hash_otp, hash_password, otp_matches, verify_password
 from ..schemas import (
@@ -342,3 +351,65 @@ def google_login(body: GoogleIn, db: Session = Depends(get_db)):
 @router.get("/me", response_model=MeOut)
 def me(user: SessionUser = Depends(current_user)):
     return MeOut(email=user.email, role=user.role)
+
+
+@router.get("/history")
+def my_history(user: SessionUser = Depends(current_user), db: Session = Depends(get_db)):
+    """Read-only: the signed-in person's finished voting rounds and the rank they
+    earned in each. Only reads frozen leaderboards (ResultSnapshot) — it returns
+    the same public ranking already shown on the results screen, so it never
+    exposes who voted for whom. Nothing is written."""
+    email = (user.email or "").lower()
+
+    # Every active roster this email belongs to (an email = one TeamMember row
+    # per team; its id is what appears in that round's ranking).
+    memberships = db.scalars(
+        select(TeamMember).where(
+            func.lower(TeamMember.email) == email,
+            TeamMember.deleted_at.is_(None),
+        )
+    ).all()
+
+    out: list[dict] = []
+    for tm in memberships:
+        rounds = db.scalars(
+            select(VotingRound).where(
+                VotingRound.team_id == tm.team_id,
+                VotingRound.status == "closed",
+                VotingRound.deleted_at.is_(None),
+            )
+        ).all()
+        for rnd in rounds:
+            snap = db.scalar(
+                select(ResultSnapshot).where(ResultSnapshot.round_id == rnd.id)
+            )
+            if not snap or not snap.ranked_output:
+                continue
+            row = next(
+                (r for r in snap.ranked_output if r.get("member_id") == tm.id), None
+            )
+            if row is None:
+                continue
+            project = db.get(Project, rnd.project_id)
+            team = db.get(Team, tm.team_id)
+            out.append(
+                {
+                    "round_id": rnd.id,
+                    "project_name": project.name if project else "",
+                    "team_name": team.name if team else "",
+                    "round_name": rnd.name,
+                    "rank": row.get("rank"),
+                    "points": row.get("points"),
+                    "total": len(snap.ranked_output),
+                    "computed_at": snap.computed_at.isoformat() if snap.computed_at else None,
+                    "end_at": rnd.end_at.isoformat() if rnd.end_at else None,
+                    # Full frozen leaderboard for this round (same public ranking
+                    # shown on the results screen) so the member can expand to see
+                    # everyone's placement. Never reveals who voted for whom.
+                    "ranking": snap.ranked_output,
+                    "member_id": tm.id,  # this member's row, to highlight "you"
+                }
+            )
+
+    out.sort(key=lambda x: (x["computed_at"] or ""), reverse=True)
+    return out

@@ -25,8 +25,8 @@ import { toast } from "@/components/Toast";
 import { listContainer, listItem } from "@/components/PageTransition";
 
 interface Enriched extends Project {
-  teams: number;
-  rounds: number;
+  teams: number | null; // null = stats still loading in the background
+  rounds: number | null;
   open: number;
 }
 
@@ -39,22 +39,33 @@ export default function AdminDashboard() {
 
   const load = useCallback(async () => {
     try {
+      // Render the project cards as soon as the list arrives — don't block on the
+      // per-project team/round counts. Those fill in progressively so the page
+      // feels instant instead of waiting on 2×N round-trips (esp. on a cold API).
       const projects = await api<Project[]>("/projects");
-      const enriched = await Promise.all(
-        projects.map(async (p) => {
-          const [teams, rounds] = await Promise.all([
-            api<Team[]>(`/projects/${p.id}/teams`).catch(() => [] as Team[]),
-            api<Round[]>(`/projects/${p.id}/rounds`).catch(() => [] as Round[]),
-          ]);
-          return {
-            ...p,
-            teams: teams.length,
-            rounds: rounds.length,
-            open: rounds.filter((r) => r.status === "open").length,
-          };
-        }),
-      );
-      setItems(enriched);
+      setItems(projects.map((p) => ({ ...p, teams: null, rounds: null, open: 0 })));
+
+      projects.forEach((p) => {
+        Promise.all([
+          api<Team[]>(`/projects/${p.id}/teams`).catch(() => [] as Team[]),
+          api<Round[]>(`/projects/${p.id}/rounds`).catch(() => [] as Round[]),
+        ]).then(([teams, rounds]) => {
+          setItems((cur) =>
+            cur
+              ? cur.map((x) =>
+                  x.id === p.id
+                    ? {
+                        ...x,
+                        teams: teams.length,
+                        rounds: rounds.length,
+                        open: rounds.filter((r) => r.status === "open").length,
+                      }
+                    : x,
+                )
+              : cur,
+          );
+        });
+      });
     } catch (e: any) {
       toast(e?.message || "Could not load projects", "err");
       setItems([]);
@@ -102,8 +113,8 @@ export default function AdminDashboard() {
 
   const totals = {
     projects: items?.length ?? 0,
-    teams: items?.reduce((a, p) => a + p.teams, 0) ?? 0,
-    rounds: items?.reduce((a, p) => a + p.rounds, 0) ?? 0,
+    teams: items?.reduce((a, p) => a + (p.teams ?? 0), 0) ?? 0,
+    rounds: items?.reduce((a, p) => a + (p.rounds ?? 0), 0) ?? 0,
     open: items?.reduce((a, p) => a + p.open, 0) ?? 0,
   };
 
@@ -188,8 +199,12 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <div className="mt-5 flex items-center gap-5 text-[13px] text-white/55">
-                    <span className="flex items-center gap-1.5"><Users className="h-4 w-4 text-white/35" /> {p.teams} teams</span>
-                    <span className="flex items-center gap-1.5"><Layers className="h-4 w-4 text-white/35" /> {p.rounds} rounds</span>
+                    <span className="flex items-center gap-1.5">
+                      <Users className="h-4 w-4 text-white/35" /> {p.teams ?? "·"} teams
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="h-4 w-4 text-white/35" /> {p.rounds ?? "·"} rounds
+                    </span>
                     <span className="ml-auto flex items-center gap-1 font-medium text-cyan-glow/80">
                       Open <ArrowUpRight className="h-4 w-4" />
                     </span>
@@ -201,23 +216,33 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* create modal */}
+      {/* create modal — a real <form> so Enter submits natively */}
       <Modal open={creating} onClose={() => setCreating(false)}>
-        <h3 className="text-xl">New project</h3>
-        <p className="mt-1 text-[14px] text-white/50">Name it after the cycle, team, or award.</p>
-        <div className="mt-5">
-          <Input
-            label="Project name"
-            value={name}
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && createProject()}
-          />
-        </div>
-        <div className="mt-6 flex gap-3">
-          <Button variant="glass" block onClick={() => setCreating(false)}>Cancel</Button>
-          <Button block loading={busy} onClick={createProject}>Create</Button>
-        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            createProject();
+          }}
+        >
+          <h3 className="text-xl">New project</h3>
+          <p className="mt-1 text-[14px] text-white/50">Name it after the cycle, team, or award.</p>
+          <div className="mt-5">
+            <Input
+              label="Project name"
+              value={name}
+              autoFocus
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="mt-6 flex gap-3">
+            <Button type="button" variant="glass" block onClick={() => setCreating(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={busy}>
+              Create
+            </Button>
+          </div>
+        </form>
       </Modal>
     </AppShell>
   );

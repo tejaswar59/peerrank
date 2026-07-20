@@ -4,7 +4,6 @@ Every endpoint here requires the admin role. Note there is deliberately NO
 endpoint that returns an individual ballot — that data path does not exist.
 """
 import secrets
-import string
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,13 +30,11 @@ from ..schemas import (
 
 router = APIRouter(prefix="/api", tags=["admin"], dependencies=[Depends(require_admin)])
 
-_ALPHABET = string.ascii_lowercase + string.digits
-
-
 def _make_vote_token(db: Session) -> str:
-    """Short, URL-friendly slug (e.g. 'x7f2k9'), unique across rounds."""
-    for _ in range(10):
-        token = "".join(secrets.choice(_ALPHABET) for _ in range(6))
+    """Short 5-digit numeric code (e.g. '04821'), unique across rounds.
+    Leading zeros are kept, so all 100k combinations are usable."""
+    for _ in range(30):
+        token = "".join(secrets.choice("0123456789") for _ in range(5))
         if not db.scalar(
             select(models.VotingRound.id).where(models.VotingRound.vote_token == token)
         ):
