@@ -14,6 +14,7 @@ from .database import Base, engine
 from .routers import admin, auth_routes, voting
 from .scheduler import sweep_loop
 
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
