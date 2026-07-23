@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { OrbLoader, Avatar } from "@/components/ui/Bits";
 import GlassCard from "@/components/ui/GlassCard";
 import { Countdown } from "@/components/ui/Countdown";
-import { parseUTC } from "@/lib/format";
 import { homeFor } from "@/routes/guards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { Wordmark } from "@/components/Brand";
@@ -141,17 +140,35 @@ export default function Vote() {
     load();
   }, [s.token, s.role, load]);
 
-  // Auto-reveal: once a voter has locked in and the round's window elapses,
-  // poll so the screen flips from "Ballot locked in" to the results podium the
-  // moment the round closes (server auto-close sweep may lag a few seconds).
+  // Auto-reveal: while a voter is on the "Ballot locked in" screen, quietly poll
+  // for closure. The round can close early (everyone voted) or on the deadline;
+  // either way the screen flips to the results podium — no manual refresh, and
+  // no loader flash (we only swap phase once it's actually closed).
   useEffect(() => {
     if (phase.k !== "locked") return;
-    const end = parseUTC(phase.page.end_at)?.getTime() ?? 0;
-    const id = setInterval(() => {
-      if (Date.now() >= end) load();
-    }, 15000);
-    return () => clearInterval(id);
-  }, [phase, load]);
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const page = await api<VotePage>(`/vote/${token}`);
+        if (!cancelled && page.status === "closed") {
+          const results = await api<ResultOut>(`/vote/${token}/results`).catch(() => null);
+          setPhase({ k: "closed", page, results });
+        }
+      } catch {
+        /* transient — try again next tick */
+      }
+    };
+    const id = setInterval(check, 8000); // poll every 8s while locked
+    const onVis = () => document.visibilityState === "visible" && check();
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", check); // instant re-check when tab refocuses
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", check);
+    };
+  }, [phase.k, token]);
 
   // Auth gate — send to login, remember where we were headed.
   if (!s.token) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -178,8 +195,20 @@ export default function Vote() {
         method: "POST",
         body: { ranked_member_ids: phase.order.map((c) => c.id) },
       });
-      setPhase({ k: "locked", page: phase.page });
       toast("Ballot submitted — thank you!", "ok");
+      // This vote may have been the last one, auto-closing the round — re-check
+      // so the voter lands straight on the results podium if so.
+      try {
+        const page = await api<VotePage>(`/vote/${token}`);
+        if (page.status === "closed") {
+          const results = await api<ResultOut>(`/vote/${token}/results`).catch(() => null);
+          setPhase({ k: "closed", page, results });
+        } else {
+          setPhase({ k: "locked", page });
+        }
+      } catch {
+        setPhase({ k: "locked", page: phase.page });
+      }
     } catch (e) {
       const err = e as ApiError;
       toast(err.message || "Could not submit", "err");

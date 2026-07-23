@@ -6,7 +6,7 @@ the leaderboard. Leaderboard computation is idempotent, so a double-run is safe.
 import asyncio
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import models
 from .config import settings
@@ -18,26 +18,45 @@ log = logging.getLogger("peerrank.sweep")
 
 
 def run_sweep_once() -> int:
-    """Close all expired-but-open rounds. Returns how many were closed."""
+    """Close open rounds that are either past their deadline OR fully voted.
+    Returns how many were closed. Leaderboard freeze is idempotent."""
     db = SessionLocal()
     closed = 0
     try:
         now = utcnow()
-        expired = db.scalars(
+        open_rounds = db.scalars(
             select(models.VotingRound).where(
                 models.VotingRound.status == "open",
-                models.VotingRound.end_at <= now,
                 models.VotingRound.deleted_at.is_(None),
             )
         ).all()
-        for rnd in expired:
+        for rnd in open_rounds:
+            expired = rnd.end_at <= now
+            all_voted = False
+            if not expired:
+                roster_n = db.scalar(
+                    select(func.count())
+                    .select_from(models.TeamMember)
+                    .where(
+                        models.TeamMember.team_id == rnd.team_id,
+                        models.TeamMember.deleted_at.is_(None),
+                    )
+                ) or 0
+                voted_n = db.scalar(
+                    select(func.count())
+                    .select_from(models.ParticipationLog)
+                    .where(models.ParticipationLog.round_id == rnd.id)
+                ) or 0
+                all_voted = roster_n > 0 and voted_n >= roster_n
+            if not (expired or all_voted):
+                continue
             rnd.status = "closed"
             compute_and_freeze(db, rnd.id)
             db.add(
                 models.AuditLog(
                     actor_email="system",
                     action="round.autoclose",
-                    detail=f"round={rnd.id} name={rnd.name!r}",
+                    detail=f"round={rnd.id} name={rnd.name!r} reason={'expired' if expired else 'all-voted'}",
                 )
             )
             closed += 1
