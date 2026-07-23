@@ -297,7 +297,7 @@ function RoundCard({ round, reload }: { round: Round; reload: () => void }) {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <ParticipationView roundId={round.id} live={open} />
+            <ParticipationView roundId={round.id} live={open} onAllVoted={open ? reload : undefined} />
           </motion.div>
         ) : panel === "res" ? (
           <motion.div
@@ -323,16 +323,33 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function ParticipationView({ roundId, live }: { roundId: number; live: boolean }) {
+function ParticipationView({
+  roundId,
+  live,
+  onAllVoted,
+}: {
+  roundId: number;
+  live: boolean;
+  onAllVoted?: () => void;
+}) {
   const [data, setData] = useState<Participation | null>(null);
   const timer = useRef<number | null>(null);
+  const firedComplete = useRef(false);
 
   useEffect(() => {
     let alive = true;
     async function draw() {
       try {
         const p = await api<Participation>(`/rounds/${roundId}/participation`);
-        if (alive) setData(p);
+        if (!alive) return;
+        setData(p);
+        // Everyone voted → the backend auto-closed the round. Refresh the panel
+        // once so the card flips to "Closed" and "View results" appears.
+        if (p.total > 0 && p.pending === 0 && !firedComplete.current) {
+          firedComplete.current = true;
+          if (timer.current) clearInterval(timer.current);
+          onAllVoted?.();
+        }
       } catch {
         /* ignore transient */
       }
@@ -343,7 +360,7 @@ function ParticipationView({ roundId, live }: { roundId: number; live: boolean }
       alive = false;
       if (timer.current) clearInterval(timer.current);
     };
-  }, [roundId, live]);
+  }, [roundId, live, onAllVoted]);
 
   if (!data) {
     return (

@@ -4,7 +4,7 @@ Self-exclusion and the window check happen SERVER-SIDE. The client is never
 trusted to filter itself out of the roster or to honor the deadline.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import utcnow
 from ..ratelimit import rate_limit
+from ..results import close_round
 from ..schemas import (
     BallotIn,
     CandidateOut,
@@ -131,6 +132,18 @@ def submit_ballot(
     # Ballot carries NO identity — it is not linkable to the row just inserted.
     db.add(models.Ballot(round_id=rnd.id, ranked_member_ids=submitted))
     db.commit()
+
+    # Auto-close the moment EVERY eligible member has voted: freeze the results
+    # immediately so voters and the admin see the leaderboard without waiting for
+    # the deadline. (The timed sweep / manual close still handle the other cases.)
+    voted_count = db.scalar(
+        select(func.count())
+        .select_from(models.ParticipationLog)
+        .where(models.ParticipationLog.round_id == rnd.id)
+    ) or 0
+    if rnd.status == "open" and voted_count >= len(roster):
+        close_round(db, rnd, actor_email="system:all-voted")
+
     return {"status": "submitted"}
 
 

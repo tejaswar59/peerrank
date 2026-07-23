@@ -51,7 +51,9 @@ def compute_ranking(
         for place, member in enumerate(ballot):
             if member not in points:
                 continue  # ignore ids not on the roster (defensive)
-            points[member] += length - place
+            # +1 base: the last ranked member on a ballot scores 2, not 1, so the
+            # spread starts higher (fewer collisions before the uniqueness pass).
+            points[member] += (length - place) + 1
             place_counts[member][place] = place_counts[member].get(place, 0) + 1
 
     max_place = max((len(b) for b in ballots), default=0)
@@ -81,11 +83,30 @@ def compute_ranking(
         return (-points[m], placements, -copeland[m], join_order[m])
 
     ordered = sorted(member_ids, key=sort_key)
+
+    # Strictly-unique display points: no two members ever show the same number.
+    # The order above is already a strict total order (tie-break cascade), so we
+    # walk it top-down and, whenever the raw tally ties or inverts, nudge the
+    # lower-ranked member down by 1. A final shift keeps every score >= 1.
+    display: dict[int, int] = {}
+    prev: int | None = None
+    for m in ordered:
+        p = points[m]
+        if prev is not None and p >= prev:
+            p = prev - 1
+        display[m] = p
+        prev = p
+    if ordered:
+        lowest = display[ordered[-1]]
+        shift = (1 - lowest) if lowest < 1 else 0
+    else:
+        shift = 0
+
     return [
         {
             "member_id": m,
             "display_name": display_names.get(m, str(m)),
-            "points": points[m],
+            "points": display[m] + shift,
             "rank": i + 1,
         }
         for i, m in enumerate(ordered)
