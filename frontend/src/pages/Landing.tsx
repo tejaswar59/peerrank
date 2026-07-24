@@ -54,6 +54,10 @@ const STEPS = [
   { n: "03", t: "Reveal the leaderboard", d: "Scores freeze into a cinematic, shareable result the instant it closes." },
 ];
 
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 export default function Landing() {
   const s = useSession();
   const heroRef = useRef<HTMLDivElement>(null);
@@ -73,9 +77,19 @@ export default function Landing() {
         <nav className="glass-strong mx-auto flex h-16 max-w-6xl items-center justify-between rounded-xl2 px-4 sm:px-5">
           <Wordmark />
           <div className="hidden items-center gap-7 text-[14px] text-white/60 md:flex">
-            <a href="#features" className="transition hover:text-white">Features</a>
-            <a href="#how" className="transition hover:text-white">How it works</a>
-            <a href="#trust" className="transition hover:text-white">Trust</a>
+            {/* Plain `href="#id"` anchors would collide with the app's
+                HashRouter (it owns the URL hash for routing, e.g. "#/login")
+                — clicking one would navigate to a nonexistent route "#id"
+                instead of scrolling. Scroll to the section directly instead. */}
+            <button onClick={() => scrollToSection("features")} className="transition hover:text-white">
+              Features
+            </button>
+            <button onClick={() => scrollToSection("how")} className="transition hover:text-white">
+              How it works
+            </button>
+            <button onClick={() => scrollToSection("trust")} className="transition hover:text-white">
+              Trust
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {s.token ? (
