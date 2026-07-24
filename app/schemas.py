@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class LoginIn(BaseModel):
     username: str
     password: str
+    # Single-device login: True re-submits after the user confirms "sign in
+    # here and sign out there", overwriting whatever session was active.
+    force: bool = False
 
 
 class LoginOut(BaseModel):
@@ -32,6 +35,7 @@ class SignupIn(BaseModel):
 class VerifyIn(BaseModel):
     email: EmailStr
     code: str = Field(min_length=1, max_length=12)
+    force: bool = False  # see LoginIn.force
 
 
 class ResendIn(BaseModel):
@@ -41,6 +45,7 @@ class ResendIn(BaseModel):
 class GoogleIn(BaseModel):
     credential: str  # the Google ID token (JWT) from the Sign-in button
     role: str | None = None  # "admin"/"member" picked on the signup toggle; new users only
+    force: bool = False  # see LoginIn.force
 
 
 class ForgotIn(BaseModel):
@@ -51,6 +56,7 @@ class ResetIn(BaseModel):
     email: EmailStr
     code: str = Field(min_length=1, max_length=12)
     new_password: str = Field(min_length=1)  # length checked server-side vs config
+    force: bool = False  # see LoginIn.force
 
 
 class MessageOut(BaseModel):

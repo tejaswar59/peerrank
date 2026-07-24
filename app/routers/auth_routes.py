@@ -17,11 +17,18 @@ import urllib.parse
 import urllib.request
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..auth import SessionUser, authenticate, current_user, issue_token
+from ..auth import (
+    SessionUser,
+    authenticate,
+    current_user,
+    end_session,
+    issue_token,
+    start_or_replace_session,
+)
 from ..config import settings
 from ..database import get_db
 from ..mailer import send_otp_email
@@ -54,6 +61,22 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _otp_limit = rate_limit(settings.otp_rate_max, settings.otp_rate_window, bucket="otp")
 _login_limit = rate_limit(settings.login_rate_max, settings.login_rate_window, bucket="login")
+
+
+def _device_label(user_agent: str | None) -> str:
+    """Coarse, best-effort "Browser on OS" label from the User-Agent header,
+    just so the "already signed in elsewhere" prompt can say roughly where —
+    never anything more precise than that (no IP, no fingerprinting)."""
+    ua = user_agent or ""
+    os_name = next(
+        (o for o in ("Windows", "Android", "iPhone", "iPad", "Mac OS X", "Linux") if o in ua),
+        "",
+    ).replace("Mac OS X", "Mac")
+    browser = next(
+        (b for b in ("Edg", "OPR", "Chrome", "Firefox", "Safari") if b in ua), ""
+    ).replace("Edg", "Edge").replace("OPR", "Opera")
+    label = " on ".join(p for p in (browser, os_name) if p)
+    return label or "another device"
 
 
 def _issue_and_send_otp(db: Session, email: str, purpose: str = "signup") -> None:
@@ -116,7 +139,11 @@ def signup(body: SignupIn, db: Session = Depends(get_db)):
 
 
 @router.post("/verify", response_model=LoginOut, dependencies=[Depends(_login_limit)])
-def verify(body: VerifyIn, db: Session = Depends(get_db)):
+def verify(
+    body: VerifyIn,
+    db: Session = Depends(get_db),
+    user_agent: str | None = Header(default=None),
+):
     email = str(body.email).lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
@@ -134,8 +161,9 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
             OtpCode.consumed == False,  # noqa: E712
         ).update({"consumed": True})
         db.commit()
+        sid = start_or_replace_session(db, email, body.force, _device_label(user_agent))
         s = SessionUser(email=email, role=user.role)
-        return LoginOut(token=issue_token(s), email=email, role=user.role)
+        return LoginOut(token=issue_token(s, sid), email=email, role=user.role)
 
     otp = db.scalar(
         select(OtpCode)
@@ -159,8 +187,9 @@ def verify(body: VerifyIn, db: Session = Depends(get_db)):
     otp.consumed = True
     user.is_verified = True
     db.commit()
+    sid = start_or_replace_session(db, email, body.force, _device_label(user_agent))
     user_session = SessionUser(email=email, role=user.role)
-    return LoginOut(token=issue_token(user_session), email=email, role=user.role)
+    return LoginOut(token=issue_token(user_session, sid), email=email, role=user.role)
 
 
 @router.post("/resend", response_model=MessageOut, dependencies=[Depends(_otp_limit)])
@@ -176,7 +205,11 @@ def resend(body: ResendIn, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=LoginOut, dependencies=[Depends(_login_limit)])
-def login(body: LoginIn, db: Session = Depends(get_db)):
+def login(
+    body: LoginIn,
+    db: Session = Depends(get_db),
+    user_agent: str | None = Header(default=None),
+):
     username = body.username.strip()
 
     # Registered accounts take precedence — their real password is required.
@@ -189,10 +222,15 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
                 )
             if not verify_password(body.password, user.password_hash):
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
+            # Single-device login: registered accounts only (see ActiveSession).
+            sid = start_or_replace_session(db, user.email, body.force, _device_label(user_agent))
             s = SessionUser(email=user.email, role=user.role)
-            return LoginOut(token=issue_token(s), email=user.email, role=user.role)
+            return LoginOut(token=issue_token(s, sid), email=user.email, role=user.role)
 
-    # Fallback: temporary dev shim (admin/123, user/123, unregistered email/123).
+    # Fallback: temporary dev shim (admin/123, user/123, unregistered email/123)
+    # — deliberately EXEMPT from single-device enforcement (see ActiveSession's
+    # docstring: it's pre-launch/throwaway and multiple people use it at once
+    # during local testing).
     dev = authenticate(username, body.password)
     if dev is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
@@ -246,7 +284,11 @@ def reset_check(body: VerifyIn, db: Session = Depends(get_db)):
 
 
 @router.post("/reset", response_model=LoginOut, dependencies=[Depends(_login_limit)])
-def reset_password(body: ResetIn, db: Session = Depends(get_db)):
+def reset_password(
+    body: ResetIn,
+    db: Session = Depends(get_db),
+    user_agent: str | None = Header(default=None),
+):
     """Verify the reset code and set a new password, then sign the user in."""
     email = str(body.email).lower()
     if len(body.new_password) < settings.password_min_length:
@@ -288,8 +330,9 @@ def reset_password(body: ResetIn, db: Session = Depends(get_db)):
         OtpCode.consumed == False,  # noqa: E712
     ).update({"consumed": True})
     db.commit()
+    sid = start_or_replace_session(db, email, body.force, _device_label(user_agent))
     s = SessionUser(email=email, role=user.role)
-    return LoginOut(token=issue_token(s), email=email, role=user.role)
+    return LoginOut(token=issue_token(s, sid), email=email, role=user.role)
 
 
 @router.get("/config")
@@ -315,7 +358,11 @@ def _verify_google_credential(credential: str) -> dict | None:
 
 
 @router.post("/google", response_model=LoginOut, dependencies=[Depends(_login_limit)])
-def google_login(body: GoogleIn, db: Session = Depends(get_db)):
+def google_login(
+    body: GoogleIn,
+    db: Session = Depends(get_db),
+    user_agent: str | None = Header(default=None),
+):
     if not settings.google_client_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Google sign-in is not configured.")
     info = _verify_google_credential(body.credential)
@@ -344,13 +391,23 @@ def google_login(body: GoogleIn, db: Session = Depends(get_db)):
     elif not user.is_verified:
         user.is_verified = True  # Google proved they own the inbox
         db.commit()
+    sid = start_or_replace_session(db, user.email, body.force, _device_label(user_agent))
     s = SessionUser(email=user.email, role=user.role)
-    return LoginOut(token=issue_token(s), email=user.email, role=user.role)
+    return LoginOut(token=issue_token(s, sid), email=user.email, role=user.role)
 
 
 @router.get("/me", response_model=MeOut)
 def me(user: SessionUser = Depends(current_user)):
     return MeOut(email=user.email, role=user.role)
+
+
+@router.post("/logout", response_model=MessageOut)
+def logout(user: SessionUser = Depends(current_user), db: Session = Depends(get_db)):
+    """Releases the single-device session lock so the next sign-in for this
+    email doesn't spuriously see an "already signed in elsewhere" conflict.
+    A no-op for dev-shim sessions (they never held a lock in the first place)."""
+    end_session(db, user.email)
+    return MessageOut(message="Signed out.")
 
 
 @router.get("/history")

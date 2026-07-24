@@ -5,9 +5,10 @@ import { MailCheck, RotateCw } from "lucide-react";
 import AuthLayout from "@/components/layout/AuthLayout";
 import { OtpInput } from "@/components/ui/OtpInput";
 import { Button } from "@/components/ui/Button";
-import { api } from "@/lib/api";
+import { api, isDeviceConflictError } from "@/lib/api";
 import type { LoginOut, MessageOut } from "@/lib/types";
 import { toast } from "@/components/Toast";
+import { confirmDialog } from "@/components/ui/Modal";
 import { pending } from "@/lib/pending";
 import { useAuthRedirect } from "@/routes/guards";
 
@@ -29,18 +30,34 @@ export default function Verify() {
 
   if (!email) return <Navigate to="/signup" replace />;
 
+  async function attempt(value: string, force: boolean) {
+    const r = await api<LoginOut>("/auth/verify", {
+      method: "POST",
+      body: { email, code: value, force },
+    });
+    pending.signupEmail = null;
+    redirect(r);
+  }
+
   async function verify(value: string) {
     if (submitting) return;
     setSubmitting(true);
     setError(false);
     try {
-      const r = await api<LoginOut>("/auth/verify", {
-        method: "POST",
-        body: { email, code: value },
-      });
-      pending.signupEmail = null;
-      redirect(r);
+      await attempt(value, false);
     } catch (e: any) {
+      if (isDeviceConflictError(e)) {
+        const ok = await confirmDialog({
+          title: "Already signed in elsewhere",
+          message: `${e.message} Sign in here and sign out there?`,
+          confirmText: "Sign in here",
+          cancelText: "Cancel",
+          danger: true,
+        });
+        setSubmitting(false);
+        if (ok) return attempt(value, true).catch((e2: any) => toast(e2?.message || "Invalid code", "err"));
+        return;
+      }
       setError(true);
       setCode("");
       toast(e?.message || "Invalid code", "err");

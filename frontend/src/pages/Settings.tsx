@@ -9,6 +9,7 @@ import { Badge, Divider, Reveal } from "@/components/ui/Bits";
 import { confirmDialog } from "@/components/ui/Modal";
 import { useSession } from "@/lib/useSession";
 import { session } from "@/lib/session";
+import { api } from "@/lib/api";
 import { getReduceMotion, setReduceMotion } from "@/lib/prefs";
 import { toast } from "@/components/Toast";
 
@@ -52,6 +53,13 @@ export default function Settings() {
       danger: true,
     });
     if (!ok) return;
+    // Release the single-device session lock server-side (best-effort — local
+    // sign-out proceeds either way).
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {
+      /* ignore — token may already be invalid/expired */
+    }
     session.clear();
     navigate("/login", { replace: true });
   }

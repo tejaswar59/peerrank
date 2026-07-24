@@ -59,6 +59,7 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
           value={value}
           defaultValue={defaultValue}
           {...rest}
+          aria-label={label}
           onFocus={(e) => {
             setFocused(true);
             onFocus?.(e);

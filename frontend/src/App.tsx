@@ -27,8 +27,9 @@ const Scene = lazy(() => import("./three/Scene"));
 function SessionWatcher() {
   const navigate = useNavigate();
   useEffect(() => {
-    const onExpired = () => {
-      toast("Your session has ended. Please sign in again.", "err");
+    const onExpired = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      toast(detail || "Your session has ended. Please sign in again.", "err");
       navigate("/login", { replace: true });
     };
     window.addEventListener("pr:session-expired", onExpired);
