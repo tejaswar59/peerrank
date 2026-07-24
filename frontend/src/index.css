@@ -62,6 +62,16 @@
     accent-color: rgb(var(--teal));
   }
 
+  /* `document.scrollingElement` is confirmed (measured directly) to be
+     <html> in this app, not <body> — despite body computing overflow-y:auto
+     — so this has to live here or scrollIntoView() silently ignores it.
+     Gives every scroll-into-view target (Landing's Features/How it
+     works/Trust nav) clearance from the STICKY nav bar (h-16 + its own top
+     padding ≈ 76–80px) so the section heading is never tucked underneath it. */
+  html {
+    scroll-padding-top: 96px;
+  }
+
   /* Force the native date/time picker popups into dark mode + teal accent. */
   input[type="datetime-local"],
   input[type="date"],
