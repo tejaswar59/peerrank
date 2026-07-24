@@ -20,6 +20,14 @@ export interface ApiOpts {
   signal?: AbortSignal;
 }
 
+/** True for the specific "signed in on another device" 409 the backend
+ * returns from /login, /verify, /google, /reset when a different session is
+ * already active for that email (see app/auth.py::start_or_replace_session).
+ * The caller should offer to retry the same request with `force: true`. */
+export function isDeviceConflictError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 409 && /another device/i.test(err.message);
+}
+
 function extractError(data: any, status: number): string {
   if (data && typeof data.detail === "string") return data.detail;
   if (data && Array.isArray(data.detail)) {
@@ -48,8 +56,18 @@ export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T>
 
   const isAuthEndpoint = path.indexOf("/auth/") === 0;
   if (res.status === 401 && token && !isAuthEndpoint) {
+    // Read the real reason (e.g. "signed out — signed in on another
+    // device") instead of discarding it, so the user learns why —  not just
+    // a generic "session expired".
+    let detail = "Your session has ended. Please sign in again to continue.";
+    try {
+      const body = await res.clone().json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      /* non-JSON body — keep the generic message */
+    }
     session.clear();
-    window.dispatchEvent(new CustomEvent("pr:session-expired"));
+    window.dispatchEvent(new CustomEvent("pr:session-expired", { detail }));
     throw new ApiError("unauthorized", 401);
   }
 

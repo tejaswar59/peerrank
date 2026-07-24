@@ -212,6 +212,27 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ActiveSession(Base):
+    """The ONE currently-valid session per registered email — enables
+    single-device login. Signing in again elsewhere overwrites `session_id`,
+    which immediately invalidates any token issued before that (see
+    `app.auth.current_user`, which rejects a token whose embedded sid no
+    longer matches this row).
+
+    Deliberately scoped to REAL registered accounts only (signup/Google/
+    reset all go through this). The temporary dev-login shim in app/auth.py
+    is exempt on purpose — it's documented as removed-before-production, and
+    constraining it would break normal multi-person local testing (e.g.
+    everyone using "admin"/"123" at once)."""
+
+    __tablename__ = "active_sessions"
+
+    email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_label: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class OtpCode(Base):
     """A one-time email verification code. Stored hashed; short-lived; rate-capped."""
 

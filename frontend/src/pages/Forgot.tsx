@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { OtpInput } from "@/components/ui/OtpInput";
 import { PasswordChecklist, passwordValid } from "@/components/ui/PasswordChecklist";
-import { api } from "@/lib/api";
+import { api, isDeviceConflictError } from "@/lib/api";
 import type { LoginOut, MessageOut } from "@/lib/types";
 import { toast } from "@/components/Toast";
+import { confirmDialog } from "@/components/ui/Modal";
 import { pending } from "@/lib/pending";
 import { isEmail } from "@/lib/format";
 import { useAuthRedirect } from "@/routes/guards";
@@ -71,20 +72,45 @@ export default function Forgot() {
     }
   }
 
+  async function attemptReset(force: boolean) {
+    const r = await api<LoginOut>("/auth/reset", {
+      method: "POST",
+      body: { email, code, new_password: pw, force },
+    });
+    pending.resetEmail = null;
+    toast("Password updated", "ok");
+    redirect(r);
+  }
+
   async function setPassword() {
     if (!passwordValid(pw))
       return toast("Password must meet all the requirements below", "err");
     if (pw !== pw2) return toast("Passwords don't match", "err");
     setBusy(true);
     try {
-      const r = await api<LoginOut>("/auth/reset", {
-        method: "POST",
-        body: { email, code, new_password: pw },
-      });
-      pending.resetEmail = null;
-      toast("Password updated", "ok");
-      redirect(r);
+      await attemptReset(false);
     } catch (e: any) {
+      if (isDeviceConflictError(e)) {
+        setBusy(false);
+        const ok = await confirmDialog({
+          title: "Already signed in elsewhere",
+          message: `${e.message} Sign in here and sign out there?`,
+          confirmText: "Sign in here",
+          cancelText: "Cancel",
+          danger: true,
+        });
+        if (ok) {
+          setBusy(true);
+          try {
+            await attemptReset(true);
+          } catch (e2: any) {
+            toast(e2?.message || "Could not reset password", "err");
+          } finally {
+            setBusy(false);
+          }
+        }
+        return;
+      }
       toast(e?.message || "Could not reset password", "err");
       if (e?.status === 400) {
         setStep("code"); // code expired between steps -> restart at code

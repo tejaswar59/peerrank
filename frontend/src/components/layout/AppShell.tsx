@@ -15,6 +15,7 @@ import { Wordmark } from "../Brand";
 import { Avatar } from "../ui/Bits";
 import { useSession } from "@/lib/useSession";
 import { session } from "@/lib/session";
+import { api } from "@/lib/api";
 import { confirmDialog } from "../ui/Modal";
 
 interface NavItem {
@@ -50,6 +51,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
       danger: true,
     });
     if (!ok) return;
+    // Release the single-device session lock server-side so signing back in
+    // (here or elsewhere) never sees a stale "already signed in" conflict.
+    // Best-effort: local sign-out proceeds either way.
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {
+      /* ignore — token may already be invalid/expired */
+    }
     session.clear();
     navigate("/login", { replace: true });
   }
@@ -97,6 +106,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
+                aria-label="Account menu"
+                aria-expanded={menuOpen}
                 className="ring-focus flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition hover:bg-white/[0.06]"
               >
                 <Avatar name={s.email || "?"} size={34} presence />

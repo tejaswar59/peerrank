@@ -53,14 +53,31 @@ def _audit(db: Session, actor: str, action: str, detail: str = "") -> None:
     db.add(models.AuditLog(actor_email=actor, action=action, detail=detail))
 
 
+def _norm(name: str) -> str:
+    """Normalised form for case-insensitive, whitespace-insensitive name compare."""
+    return " ".join(name.split()).lower()
+
+
 # ---------------- projects ----------------
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 def create_project(
     body: ProjectIn, db: Session = Depends(get_db), admin: SessionUser = Depends(require_admin)
 ):
-    project = models.Project(name=body.name)
+    name = body.name.strip()
+    # No two ACTIVE projects may share a name (a soft-deleted name is free again).
+    dup = db.scalar(
+        select(models.Project.id).where(
+            models.Project.deleted_at.is_(None),
+            func.lower(func.trim(models.Project.name)) == _norm(name),
+        )
+    )
+    if dup:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"A project named “{name}” already exists."
+        )
+    project = models.Project(name=name)
     db.add(project)
-    _audit(db, admin.email, "project.create", body.name)
+    _audit(db, admin.email, "project.create", name)
     db.commit()
     db.refresh(project)
     return project
@@ -135,18 +152,36 @@ def create_team(
     admin: SessionUser = Depends(require_admin),
 ):
     _get_project(db, project_id)
-    team = models.Team(project_id=project_id, name=body.name)
+    name = body.name.strip()
+    # No two ACTIVE teams in the same project may share a name.
+    dup = db.scalar(
+        select(models.Team.id).where(
+            models.Team.project_id == project_id,
+            models.Team.deleted_at.is_(None),
+            func.lower(func.trim(models.Team.name)) == _norm(name),
+        )
+    )
+    if dup:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"A team named “{name}” already exists in this project."
+        )
+    team = models.Team(project_id=project_id, name=name)
     db.add(team)
     db.flush()  # assign team.id before adding members
     seen: set[str] = set()
+    seen_names: set[str] = set()
     for email in body.emails:
         addr = str(email).lower()
         if addr in seen:
             continue  # de-dupe within the submitted list
         seen.add(addr)
-        team.members.append(
-            models.TeamMember(email=addr, display_name=addr.split("@")[0])
-        )
+        # Keep display names distinct on the ballot: if the local-part collides
+        # (e.g. john@a.com & john@b.com), fall back to the full email.
+        display = addr.split("@")[0]
+        if _norm(display) in seen_names:
+            display = addr
+        seen_names.add(_norm(display))
+        team.members.append(models.TeamMember(email=addr, display_name=display))
     _audit(db, admin.email, "team.create", f"project={project_id} name={body.name!r}")
     db.commit()
     db.refresh(team)
@@ -220,7 +255,22 @@ def add_member(
 ):
     team = _get_team(db, team_id)
     addr = str(body.email).lower()
-    display = body.display_name or addr.split("@")[0]
+    display = (body.display_name or addr.split("@")[0]).strip()
+    # Names must be distinct among ACTIVE members of the team (so ballots are
+    # unambiguous). A different active member already using this name → reject.
+    name_clash = db.scalar(
+        select(models.TeamMember.id).where(
+            models.TeamMember.team_id == team_id,
+            models.TeamMember.deleted_at.is_(None),
+            models.TeamMember.email != addr,
+            func.lower(func.trim(models.TeamMember.display_name)) == _norm(display),
+        )
+    )
+    if name_clash:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Someone named “{display}” is already on this team — use a distinct name.",
+        )
     # There may be an existing row for this (team, email) — the uq constraint keeps
     # one per pair. Reuse it: 409 if it's active, otherwise reactivate it.
     existing = db.scalar(

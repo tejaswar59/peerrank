@@ -63,6 +63,15 @@ def root():
     return RedirectResponse(url="/app/")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # Browsers request this root-level path automatically regardless of the
+    # page's own <link rel="icon">. The real icon is served by the SPA's
+    # StaticFiles mount below (/app/favicon.svg); redirect here so that
+    # default probe doesn't 404 in the logs on every page load.
+    return RedirectResponse(url="/app/favicon.svg")
+
+
 @app.get("/api/health", tags=["meta"])
 def health():
     return {"status": "ok"}

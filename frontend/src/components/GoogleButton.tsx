@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, isDeviceConflictError } from "@/lib/api";
 import type { AuthConfig, LoginOut } from "@/lib/types";
 import { Spinner } from "./ui/Bits";
+import { confirmDialog } from "./ui/Modal";
 
 declare global {
   interface Window {
@@ -62,14 +63,32 @@ export default function GoogleButton({
         window.google.accounts.id.initialize({
           client_id: clientId,
           callback: async (resp: { credential: string }) => {
-            try {
-              const role = getRole?.() ?? null;
-              const r = await api<LoginOut>("/auth/google", {
+            const role = getRole?.() ?? null;
+            const attempt = (force: boolean) =>
+              api<LoginOut>("/auth/google", {
                 method: "POST",
-                body: { credential: resp.credential, role },
+                body: { credential: resp.credential, role, force },
               });
-              onSuccess(r);
+            try {
+              onSuccess(await attempt(false));
             } catch (e: any) {
+              if (isDeviceConflictError(e)) {
+                const ok = await confirmDialog({
+                  title: "Already signed in elsewhere",
+                  message: `${e.message} Sign in here and sign out there?`,
+                  confirmText: "Sign in here",
+                  cancelText: "Cancel",
+                  danger: true,
+                });
+                if (ok) {
+                  try {
+                    onSuccess(await attempt(true));
+                  } catch (e2: any) {
+                    onError?.(e2?.message || "Google sign-in failed");
+                  }
+                }
+                return;
+              }
               onError?.(e?.message || "Google sign-in failed");
             }
           },

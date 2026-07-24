@@ -66,6 +66,8 @@ export function ToastViewport() {
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="glass-strong pointer-events-auto flex items-start gap-3 rounded-2xl px-4 py-3.5"
             style={{ boxShadow: `0 10px 40px -10px ${ACCENT[t.kind]}` }}
+            role="status"
+            data-kind={t.kind}
           >
             <div className="mt-0.5 shrink-0">{ICONS[t.kind]}</div>
             <p className="flex-1 text-[14px] font-medium leading-snug text-white/90">{t.msg}</p>

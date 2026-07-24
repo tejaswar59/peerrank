@@ -7,10 +7,11 @@ import AuthLayout from "@/components/layout/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import GoogleButton from "@/components/GoogleButton";
-import { api } from "@/lib/api";
+import { api, isDeviceConflictError } from "@/lib/api";
 import type { LoginOut } from "@/lib/types";
 import { useAuthRedirect } from "@/routes/guards";
 import { toast } from "@/components/Toast";
+import { confirmDialog } from "@/components/ui/Modal";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required").email("Enter a valid email"),
@@ -26,15 +27,36 @@ export default function Login() {
     formState: { errors, isSubmitting },
   } = useForm<Form>({ resolver: zodResolver(schema) });
 
+  async function attempt(data: Form, force: boolean) {
+    // Backend login takes `username` — the SPA maps the email field to it.
+    const r = await api<LoginOut>("/auth/login", {
+      method: "POST",
+      body: { username: data.email, password: data.password, force },
+    });
+    redirect(r);
+  }
+
   async function onSubmit(data: Form) {
     try {
-      // Backend login takes `username` — the SPA maps the email field to it.
-      const r = await api<LoginOut>("/auth/login", {
-        method: "POST",
-        body: { username: data.email, password: data.password },
-      });
-      redirect(r);
+      await attempt(data, false);
     } catch (e: any) {
+      if (isDeviceConflictError(e)) {
+        const ok = await confirmDialog({
+          title: "Already signed in elsewhere",
+          message: `${e.message} Sign in here and sign out there?`,
+          confirmText: "Sign in here",
+          cancelText: "Cancel",
+          danger: true,
+        });
+        if (ok) {
+          try {
+            await attempt(data, true);
+          } catch (e2: any) {
+            toast(e2?.message || "Sign in failed", "err");
+          }
+        }
+        return; // cancelled -> no error toast, they just chose not to switch
+      }
       toast(e?.message || "Sign in failed", "err");
     }
   }
