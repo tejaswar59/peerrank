@@ -28,18 +28,30 @@ export function isDeviceConflictError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 409 && /another device/i.test(err.message);
 }
 
+// A validation loc like ["body", "emails", 2] names the 3rd entry of a list
+// field — useful for the API, meaningless to a user. Drop "body" and any
+// trailing list index so they see "emails", not "2".
+function humanizeLoc(loc: unknown[]): string {
+  const parts = loc.filter((p) => p !== "body");
+  if (parts.length && typeof parts[parts.length - 1] === "number") parts.pop();
+  return parts.join(".");
+}
+
 function extractError(data: any, status: number): string {
   if (data && typeof data.detail === "string") return data.detail;
   if (data && Array.isArray(data.detail)) {
-    return data.detail
-      .map((d: any) => {
-        const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : "";
-        const msg = (d.msg || "invalid value").replace(/^value is /, "");
-        return field ? `${field}: ${msg}` : msg;
-      })
-      .join("; ");
+    const messages = data.detail.map((d: any) => {
+      const field = Array.isArray(d.loc) ? humanizeLoc(d.loc) : "";
+      const msg = (d.msg || "Invalid value")
+        .replace(/^Value error,\s*/i, "")
+        .replace(/^value is\s*/i, "");
+      return field ? `${field}: ${msg}` : msg;
+    });
+    // De-dupe: several invalid list entries (e.g. 3 bad emails) otherwise
+    // repeat the exact same sentence once per entry.
+    return Array.from(new Set(messages)).join(" ");
   }
-  return `Request failed (${status})`;
+  return `Something went wrong. Please try again. (${status})`;
 }
 
 export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T> {

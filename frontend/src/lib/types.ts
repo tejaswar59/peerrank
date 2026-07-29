@@ -19,14 +19,15 @@ export interface AuthConfig {
   google_client_id: string;
 }
 
-export interface Project {
-  id: number;
-  name: string;
-  created_at: string;
-}
-
 export interface Member {
   id: number;
+  email: string;
+  display_name: string;
+}
+
+// GET /api/users — registered, non-admin accounts, for the "pick a teammate
+// by name" autocomplete when building a team roster.
+export interface DirectoryUser {
   email: string;
   display_name: string;
 }
@@ -38,7 +39,6 @@ export interface Team {
 
 export interface Round {
   id: number;
-  project_id: number;
   team_id: number;
   name: string;
   vote_token: string;
@@ -91,7 +91,6 @@ export interface ResultOut {
 // GET /api/auth/history — the signed-in member's finished rounds + their rank.
 export interface HistoryEntry {
   round_id: number;
-  project_name: string;
   team_name: string;
   round_name: string;
   rank: number;

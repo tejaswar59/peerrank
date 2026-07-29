@@ -74,18 +74,20 @@ def current_user(
     """Dependency: requires a valid `Authorization: Bearer <token>` header.
 
     Single-device enforcement: if this token carries a session id (only
-    registered-account logins embed one — see start_or_replace_session), and
-    an ActiveSession row exists for the email with a DIFFERENT session id,
-    this token was superseded by a login elsewhere and is rejected. A token
-    with no embedded sid (dev-shim logins) or an email with no active-session
-    row at all (nothing to conflict with) is never affected by this check."""
+    registered-account logins embed one — see start_or_replace_session), it is
+    only honored while an ActiveSession row for that email still points at
+    THIS SAME session id. If the row is missing (explicit logout, or the
+    session store was cleared/reset) or points at a different sid (a login
+    elsewhere superseded it), the token is rejected — a signed token alone is
+    never sufficient once the account has embedded a session id. A token with
+    no embedded sid at all (dev-shim logins) is never affected by this check."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
     user, sid = _decode_token(token)
     if sid:
         row = db.get(ActiveSession, user.email)
-        if row is not None and row.session_id != sid:
+        if row is None or row.session_id != sid:
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED,
                 "You were signed out because this account signed in on another device.",

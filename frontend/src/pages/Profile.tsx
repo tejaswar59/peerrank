@@ -98,11 +98,11 @@ function HistorySection() {
                   ) : null}
                 </div>
 
-                {/* round + project */}
+                {/* round + team */}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[15px] font-semibold text-white/90">{h.round_name}</p>
                   <p className="mt-0.5 truncate text-[12.5px] text-white/45">
-                    {h.project_name} · {h.team_name}
+                    {h.team_name}
                     {h.end_at ? <span className="text-white/30"> · {fmtDate(h.end_at)}</span> : null}
                   </p>
                 </div>
@@ -128,7 +128,7 @@ function HistorySection() {
           <div>
             <div className="mb-4 text-center">
               <p className="text-[12.5px] font-medium uppercase tracking-wider text-cyan-glow/80">
-                {open.project_name} · {open.team_name}
+                {open.team_name}
               </p>
               <h3 className="mt-1 text-2xl">{open.round_name}</h3>
               <p className="mt-1 text-[13.5px] text-white/50">

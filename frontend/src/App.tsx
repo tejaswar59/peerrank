@@ -18,7 +18,7 @@ import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import AdminDashboard from "./pages/admin/AdminDashboard";
-import ProjectDetail from "./pages/admin/ProjectDetail";
+import TeamDetail from "./pages/admin/TeamDetail";
 import { RequireAuth, RequireAdmin, RedirectIfAuthed } from "./routes/guards";
 
 // 3D scene is heavy — load it lazily and skip it entirely when motion is reduced.
@@ -78,8 +78,8 @@ function AnimatedRoutes() {
         {/* admin */}
         <Route path="/admin" element={<RequireAdmin>{wrap(<AdminDashboard />)}</RequireAdmin>} />
         <Route
-          path="/admin/project/:id"
-          element={<RequireAdmin>{wrap(<ProjectDetail />)}</RequireAdmin>}
+          path="/admin/team/:id"
+          element={<RequireAdmin>{wrap(<TeamDetail />)}</RequireAdmin>}
         />
 
         <Route path="/404" element={wrap(<NotFound />)} />
