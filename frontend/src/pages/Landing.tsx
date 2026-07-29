@@ -37,7 +37,7 @@ const FEATURES = [
   {
     icon: <Users2 className="h-6 w-6" />,
     title: "Team-native",
-    body: "Projects, teams and rounds map to how you already work. Invite by email, done in seconds.",
+    body: "Teams and rounds map to how you already work. Invite by email, done in seconds.",
   },
 ];
 
@@ -49,7 +49,7 @@ const STATS = [
 ];
 
 const STEPS = [
-  { n: "01", t: "Create a round", d: "Spin up a project, add your team by email, and open a voting window." },
+  { n: "01", t: "Create a round", d: "Add your team by email and open a voting window." },
   { n: "02", t: "Everyone ranks", d: "Members privately drag peers into their honest order. No names attached." },
   { n: "03", t: "Reveal the leaderboard", d: "Scores freeze into a cinematic, shareable result the instant it closes." },
 ];

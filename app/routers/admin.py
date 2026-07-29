@@ -1,7 +1,8 @@
-"""Admin API: projects, teams, members, voting rounds, participation, results.
+"""Admin API: teams, members, voting rounds, participation, results.
 
-Every endpoint here requires the admin role. Note there is deliberately NO
-endpoint that returns an individual ballot — that data path does not exist.
+Teams are top-level (no project grouping). Every endpoint here requires the
+admin role. Note there is deliberately NO endpoint that returns an individual
+ballot — that data path does not exist.
 """
 import secrets
 from datetime import datetime, timezone
@@ -15,12 +16,11 @@ from ..auth import SessionUser, require_admin
 from ..database import get_db
 from ..results import ballot_count, close_round
 from ..schemas import (
+    DirectoryUserOut,
     MemberIn,
     MemberOut,
     ParticipationOut,
     ParticipationRow,
-    ProjectIn,
-    ProjectOut,
     ResultOut,
     RoundIn,
     RoundOut,
@@ -58,54 +58,37 @@ def _norm(name: str) -> str:
     return " ".join(name.split()).lower()
 
 
-# ---------------- projects ----------------
-@router.post("/projects", response_model=ProjectOut, status_code=201)
-def create_project(
-    body: ProjectIn, db: Session = Depends(get_db), admin: SessionUser = Depends(require_admin)
-):
-    name = body.name.strip()
-    # No two ACTIVE projects may share a name (a soft-deleted name is free again).
-    dup = db.scalar(
-        select(models.Project.id).where(
-            models.Project.deleted_at.is_(None),
-            func.lower(func.trim(models.Project.name)) == _norm(name),
+def _directory_names(db: Session, emails: list[str]) -> dict[str, str]:
+    """Real display names for any of `emails` that belong to a verified,
+    registered (non-admin) account — so picking someone from the "existing
+    users" autocomplete shows their actual name on the roster instead of a
+    guessed local-part. Anyone not registered (e.g. an external teammate
+    added by raw email) is simply absent from the map — callers fall back."""
+    if not emails:
+        return {}
+    rows = db.execute(
+        select(models.User.email, models.User.display_name).where(
+            models.User.email.in_(emails),
+            models.User.role == "member",
+            models.User.is_verified.is_(True),
         )
-    )
-    if dup:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, f"A project named “{name}” already exists."
-        )
-    project = models.Project(name=name)
-    db.add(project)
-    _audit(db, admin.email, "project.create", name)
-    db.commit()
-    db.refresh(project)
-    return project
-
-
-@router.get("/projects", response_model=list[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
-    return db.scalars(
-        select(models.Project)
-        .where(models.Project.deleted_at.is_(None))
-        .order_by(models.Project.id)
     ).all()
+    return {email: name for email, name in rows if name}
 
 
-def _get_project(db: Session, project_id: int) -> models.Project:
-    project = db.scalar(
-        select(models.Project).where(
-            models.Project.id == project_id, models.Project.deleted_at.is_(None)
-        )
-    )
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
-
-
-@router.get("/projects/{project_id}", response_model=ProjectOut)
-def get_project(project_id: int, db: Session = Depends(get_db)):
-    return _get_project(db, project_id)
+@router.get("/users", response_model=list[DirectoryUserOut])
+def list_directory_users(db: Session = Depends(get_db)):
+    """Verified, non-admin accounts, alphabetical by name — lets an admin pick
+    a teammate by typing their name instead of remembering/retyping every
+    email. Capped well above any realistic single-org directory size; raise
+    the limit (or add search-side pagination) if that ever changes."""
+    rows = db.scalars(
+        select(models.User)
+        .where(models.User.role == "member", models.User.is_verified.is_(True))
+        .order_by(func.lower(models.User.display_name))
+        .limit(1000)
+    ).all()
+    return rows
 
 
 def _soft_delete_teams(db: Session, team_ids: list[int], now) -> None:
@@ -120,69 +103,52 @@ def _soft_delete_teams(db: Session, team_ids: list[int], now) -> None:
     )
 
 
-@router.delete("/projects/{project_id}", status_code=204)
-def delete_project(
-    project_id: int,
-    db: Session = Depends(get_db),
-    admin: SessionUser = Depends(require_admin),
-):
-    """Soft-delete a project and all its teams, members, and rounds. Rows are
-    kept in the database (deleted_at is stamped) and hidden from the app —
-    ballots/participation are never touched."""
-    _get_project(db, project_id)
-    now = models.utcnow()
-    db.query(models.VotingRound).filter(models.VotingRound.project_id == project_id).update(
-        {"deleted_at": now}, synchronize_session=False
-    )
-    team_ids = list(db.scalars(select(models.Team.id).where(models.Team.project_id == project_id)))
-    _soft_delete_teams(db, team_ids, now)
-    db.query(models.Project).filter(models.Project.id == project_id).update(
-        {"deleted_at": now}, synchronize_session=False
-    )
-    _audit(db, admin.email, "project.delete", f"project={project_id} (soft)")
-    db.commit()
-
-
 # ---------------- teams / members ----------------
-@router.post("/projects/{project_id}/teams", response_model=TeamOut, status_code=201)
+@router.post("/teams", response_model=TeamOut, status_code=201)
 def create_team(
-    project_id: int,
     body: TeamIn,
     db: Session = Depends(get_db),
     admin: SessionUser = Depends(require_admin),
 ):
-    _get_project(db, project_id)
     name = body.name.strip()
-    # No two ACTIVE teams in the same project may share a name.
+    # No two ACTIVE teams may share a name.
     dup = db.scalar(
         select(models.Team.id).where(
-            models.Team.project_id == project_id,
             models.Team.deleted_at.is_(None),
             func.lower(func.trim(models.Team.name)) == _norm(name),
         )
     )
     if dup:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, f"A team named “{name}” already exists in this project."
+            status.HTTP_409_CONFLICT, f"A team named “{name}” already exists."
         )
-    team = models.Team(project_id=project_id, name=name)
+
+    # De-dupe up front so the minimum applies to UNIQUE members, not the raw
+    # submitted count (someone pasting the same email 3 times shouldn't pass).
+    unique_emails: list[str] = list(dict.fromkeys(str(e).lower() for e in body.emails))
+    if len(unique_emails) < 3:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "A team needs at least 3 members to create — please add a few more teammates.",
+        )
+
+    team = models.Team(name=name)
     db.add(team)
     db.flush()  # assign team.id before adding members
-    seen: set[str] = set()
+    directory = _directory_names(db, unique_emails)
     seen_names: set[str] = set()
-    for email in body.emails:
-        addr = str(email).lower()
-        if addr in seen:
-            continue  # de-dupe within the submitted list
-        seen.add(addr)
-        # Keep display names distinct on the ballot: if the local-part collides
-        # (e.g. john@a.com & john@b.com), fall back to the full email.
-        display = addr.split("@")[0]
+    for addr in unique_emails:
+        # Prefer the real name from a registered account (picked via the
+        # teammate autocomplete); fall back to guessing from the email for
+        # anyone added by raw address. Keep names distinct on the ballot: if
+        # the guess collides (e.g. john@a.com & john@b.com), fall back to the
+        # full email.
+        display = directory.get(addr) or addr.split("@")[0]
         if _norm(display) in seen_names:
             display = addr
         seen_names.add(_norm(display))
         team.members.append(models.TeamMember(email=addr, display_name=display))
-    _audit(db, admin.email, "team.create", f"project={project_id} name={body.name!r}")
+    _audit(db, admin.email, "team.create", f"name={body.name!r}")
     db.commit()
     db.refresh(team)
     return team
@@ -196,26 +162,24 @@ def _active_members(db: Session, team_id: int) -> list[models.TeamMember]:
     ).all()
 
 
-@router.get("/projects/{project_id}/teams", response_model=list[TeamOut])
-def list_teams(project_id: int, db: Session = Depends(get_db)):
-    _get_project(db, project_id)
+def _team_out(db: Session, t: models.Team) -> TeamOut:
+    # Built explicitly so soft-deleted members are excluded from the response.
+    return TeamOut(
+        id=t.id,
+        name=t.name,
+        members=[
+            MemberOut(id=m.id, email=m.email, display_name=m.display_name)
+            for m in _active_members(db, t.id)
+        ],
+    )
+
+
+@router.get("/teams", response_model=list[TeamOut])
+def list_teams(db: Session = Depends(get_db)):
     teams = db.scalars(
-        select(models.Team)
-        .where(models.Team.project_id == project_id, models.Team.deleted_at.is_(None))
-        .order_by(models.Team.id)
+        select(models.Team).where(models.Team.deleted_at.is_(None)).order_by(models.Team.id)
     ).all()
-    # Build explicitly so soft-deleted members are excluded from the response.
-    return [
-        TeamOut(
-            id=t.id,
-            name=t.name,
-            members=[
-                MemberOut(id=m.id, email=m.email, display_name=m.display_name)
-                for m in _active_members(db, t.id)
-            ],
-        )
-        for t in teams
-    ]
+    return [_team_out(db, t) for t in teams]
 
 
 def _get_team(db: Session, team_id: int) -> models.Team:
@@ -227,6 +191,11 @@ def _get_team(db: Session, team_id: int) -> models.Team:
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
     return team
+
+
+@router.get("/teams/{team_id}", response_model=TeamOut)
+def get_team(team_id: int, db: Session = Depends(get_db)):
+    return _team_out(db, _get_team(db, team_id))
 
 
 @router.delete("/teams/{team_id}", status_code=204)
@@ -255,7 +224,9 @@ def add_member(
 ):
     team = _get_team(db, team_id)
     addr = str(body.email).lower()
-    display = (body.display_name or addr.split("@")[0]).strip()
+    display = (body.display_name or "").strip()
+    if not display:
+        display = _directory_names(db, [addr]).get(addr) or addr.split("@")[0]
     # Names must be distinct among ACTIVE members of the team (so ballots are
     # unambiguous). A different active member already using this name → reject.
     name_clash = db.scalar(
@@ -315,17 +286,16 @@ def remove_member(
 
 
 # ---------------- voting rounds ----------------
-@router.post("/projects/{project_id}/rounds", response_model=RoundOut, status_code=201)
+@router.post("/teams/{team_id}/rounds", response_model=RoundOut, status_code=201)
 def create_round(
-    project_id: int,
+    team_id: int,
     body: RoundIn,
     db: Session = Depends(get_db),
     admin: SessionUser = Depends(require_admin),
 ):
-    _get_project(db, project_id)
-    team = _get_team(db, body.team_id)
-    if team.project_id != project_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That team doesn't belong to this project.")
+    team = _get_team(db, team_id)
+    if body.team_id != team_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Team id mismatch.")
     if not _active_members(db, team.id):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Add at least one member to the team before opening a round."
@@ -339,7 +309,6 @@ def create_round(
         )
 
     rnd = models.VotingRound(
-        project_id=project_id,
         team_id=team.id,
         name=body.name,
         vote_token=_make_vote_token(db),
@@ -348,19 +317,19 @@ def create_round(
         status="open",
     )
     db.add(rnd)
-    _audit(db, admin.email, "round.create", f"project={project_id} name={body.name!r}")
+    _audit(db, admin.email, "round.create", f"team={team_id} name={body.name!r}")
     db.commit()
     db.refresh(rnd)
     return rnd
 
 
-@router.get("/projects/{project_id}/rounds", response_model=list[RoundOut])
-def list_rounds(project_id: int, db: Session = Depends(get_db)):
-    _get_project(db, project_id)
+@router.get("/teams/{team_id}/rounds", response_model=list[RoundOut])
+def list_rounds(team_id: int, db: Session = Depends(get_db)):
+    _get_team(db, team_id)
     return db.scalars(
         select(models.VotingRound)
         .where(
-            models.VotingRound.project_id == project_id,
+            models.VotingRound.team_id == team_id,
             models.VotingRound.deleted_at.is_(None),
         )
         .order_by(models.VotingRound.id.desc())

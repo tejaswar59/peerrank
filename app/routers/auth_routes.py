@@ -34,7 +34,6 @@ from ..database import get_db
 from ..mailer import send_otp_email
 from ..models import (
     OtpCode,
-    Project,
     ResultSnapshot,
     Team,
     TeamMember,
@@ -447,12 +446,10 @@ def my_history(user: SessionUser = Depends(current_user), db: Session = Depends(
             )
             if row is None:
                 continue
-            project = db.get(Project, rnd.project_id)
             team = db.get(Team, tm.team_id)
             out.append(
                 {
                     "round_id": rnd.id,
-                    "project_name": project.name if project else "",
                     "team_name": team.name if team else "",
                     "round_name": rnd.name,
                     "rank": row.get("rank"),

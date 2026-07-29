@@ -1,74 +1,42 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import {
-  Plus,
-  FolderKanban,
-  Users,
-  Radio,
-  Trash2,
-  ArrowUpRight,
-  Layers,
-  Activity,
-} from "lucide-react";
+import { Users, Radio, Layers, Activity } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import GlassCard from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Badge, Skeleton, Reveal } from "@/components/ui/Bits";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { Modal, confirmDialog } from "@/components/ui/Modal";
+import { Skeleton, Reveal } from "@/components/ui/Bits";
 import { api } from "@/lib/api";
-import type { Project, Team, Round } from "@/lib/types";
-import { fmtDate } from "@/lib/format";
+import type { Team, Round } from "@/lib/types";
 import { toast } from "@/components/Toast";
-import { listContainer, listItem } from "@/components/PageTransition";
-
-interface Enriched extends Project {
-  teams: number | null; // null = stats still loading in the background
-  rounds: number | null;
-  open: number;
-}
+import { TeamsPanel } from "./TeamsPanel";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const [items, setItems] = useState<Enriched[] | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [teams, setTeams] = useState<Team[] | null>(null);
+  // team_id -> open round count. null while that team's rounds are still
+  // loading in the background — kept separate from `teams` so the team list
+  // (and its create/edit UI) renders instantly without waiting on N round
+  // fetches.
+  const [openCounts, setOpenCounts] = useState<Record<number, number | null>>({});
+  const [roundTotal, setRoundTotal] = useState<Record<number, number | null>>({});
 
   const load = useCallback(async () => {
     try {
-      // Render the project cards as soon as the list arrives — don't block on the
-      // per-project team/round counts. Those fill in progressively so the page
-      // feels instant instead of waiting on 2×N round-trips (esp. on a cold API).
-      const projects = await api<Project[]>("/projects");
-      setItems(projects.map((p) => ({ ...p, teams: null, rounds: null, open: 0 })));
+      const list = await api<Team[]>("/teams");
+      setTeams(list);
+      setOpenCounts(Object.fromEntries(list.map((t) => [t.id, null])));
+      setRoundTotal(Object.fromEntries(list.map((t) => [t.id, null])));
 
-      projects.forEach((p) => {
-        Promise.all([
-          api<Team[]>(`/projects/${p.id}/teams`).catch(() => [] as Team[]),
-          api<Round[]>(`/projects/${p.id}/rounds`).catch(() => [] as Round[]),
-        ]).then(([teams, rounds]) => {
-          setItems((cur) =>
-            cur
-              ? cur.map((x) =>
-                  x.id === p.id
-                    ? {
-                        ...x,
-                        teams: teams.length,
-                        rounds: rounds.length,
-                        open: rounds.filter((r) => r.status === "open").length,
-                      }
-                    : x,
-                )
-              : cur,
-          );
-        });
+      list.forEach((t) => {
+        api<Round[]>(`/teams/${t.id}/rounds`)
+          .catch(() => [] as Round[])
+          .then((rounds) => {
+            setOpenCounts((cur) => ({ ...cur, [t.id]: rounds.filter((r) => r.status === "open").length }));
+            setRoundTotal((cur) => ({ ...cur, [t.id]: rounds.length }));
+          });
       });
     } catch (e: any) {
-      toast(e?.message || "Could not load projects", "err");
-      setItems([]);
+      toast(e?.message || "Could not load teams", "err");
+      setTeams([]);
     }
   }, []);
 
@@ -76,50 +44,14 @@ export default function AdminDashboard() {
     load();
   }, [load]);
 
-  async function createProject() {
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      await api("/projects", { method: "POST", body: { name: name.trim() } });
-      toast("Project created", "ok");
-      setCreating(false);
-      setName("");
-      setItems(null);
-      load();
-    } catch (e: any) {
-      toast(e?.message || "Could not create", "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function del(p: Enriched, e: React.MouseEvent) {
-    e.stopPropagation();
-    const ok = await confirmDialog({
-      title: `Delete "${p.name}"?`,
-      message: "Its teams and rounds will be archived. This can't be undone from here.",
-      confirmText: "Delete project",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await api(`/projects/${p.id}`, { method: "DELETE" });
-      toast("Project deleted", "ok");
-      setItems((cur) => cur?.filter((x) => x.id !== p.id) ?? null);
-    } catch (err: any) {
-      toast(err?.message || "Could not delete", "err");
-    }
-  }
-
+  const loadingCounts = teams === null || Object.values(roundTotal).some((v) => v === null);
   const totals = {
-    projects: items?.length ?? 0,
-    teams: items?.reduce((a, p) => a + (p.teams ?? 0), 0) ?? 0,
-    rounds: items?.reduce((a, p) => a + (p.rounds ?? 0), 0) ?? 0,
-    open: items?.reduce((a, p) => a + p.open, 0) ?? 0,
+    teams: teams?.length ?? 0,
+    rounds: Object.values(roundTotal).reduce((a: number, v) => a + (v ?? 0), 0),
+    open: Object.values(openCounts).reduce((a: number, v) => a + (v ?? 0), 0),
   };
 
   const kpis = [
-    { label: "Projects", value: totals.projects, icon: <FolderKanban className="h-5 w-5" />, tone: "text-cyan-glow" },
     { label: "Teams", value: totals.teams, icon: <Users className="h-5 w-5" />, tone: "text-emerald-300" },
     { label: "Rounds", value: totals.rounds, icon: <Layers className="h-5 w-5" />, tone: "text-violet-200" },
     { label: "Open now", value: totals.open, icon: <Radio className="h-5 w-5" />, tone: "text-[#f5d580]" },
@@ -132,13 +64,10 @@ export default function AdminDashboard() {
           <p className="text-[14px] font-medium text-cyan-glow/80">Admin workspace</p>
           <h1 className="mt-1 text-[clamp(2rem,5vw,3rem)] leading-tight">Dashboard</h1>
         </div>
-        <Button leftIcon={<Plus className="h-[18px] w-[18px]" />} onClick={() => setCreating(true)}>
-          New project
-        </Button>
       </Reveal>
 
       {/* KPIs */}
-      <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {kpis.map((k, i) => (
           <Reveal key={k.label} delay={i * 0.06}>
             <GlassCard className="p-5">
@@ -149,7 +78,7 @@ export default function AdminDashboard() {
                 <Activity className="h-4 w-4 text-white/20" />
               </div>
               <div className="mt-4 text-4xl font-semibold tabnums">
-                {items === null ? <Skeleton className="h-9 w-16" /> : k.value}
+                {loadingCounts && k.label !== "Teams" ? <Skeleton className="h-9 w-16" /> : k.value}
               </div>
               <div className="mt-1 text-[13px] text-white/45">{k.label}</div>
             </GlassCard>
@@ -157,93 +86,21 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* projects */}
       <div className="mt-10">
-        <h2 className="mb-5 text-lg text-white/80">Projects</h2>
-        {items === null ? (
+        {teams === null ? (
           <div className="grid gap-4 sm:grid-cols-2">
             {[0, 1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-32" />
             ))}
           </div>
-        ) : items.length === 0 ? (
-          <EmptyState
-            icon={<FolderKanban className="h-7 w-7" />}
-            title="No projects yet"
-            message="Create your first project to add teams and open a voting round."
-            action={
-              <Button leftIcon={<Plus className="h-[18px] w-[18px]" />} onClick={() => setCreating(true)}>
-                New project
-              </Button>
-            }
-          />
         ) : (
-          <motion.div variants={listContainer} initial="hidden" animate="show" className="grid gap-4 sm:grid-cols-2">
-            {items.map((p) => (
-              <motion.div key={p.id} variants={listItem}>
-                <GlassCard className="p-6" onClick={() => navigate(`/admin/project/${p.id}`)}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-xl">{p.name}</h3>
-                        {p.open > 0 ? <Badge tone="open" dot>{p.open} live</Badge> : null}
-                      </div>
-                      <p className="mt-1 text-[13px] text-white/40">Created {fmtDate(p.created_at)}</p>
-                    </div>
-                    <button
-                      onClick={(e) => del(p, e)}
-                      className="ring-focus grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white/40 transition hover:bg-rose-500/15 hover:text-rose-400"
-                      aria-label="Delete project"
-                    >
-                      <Trash2 className="h-[17px] w-[17px]" />
-                    </button>
-                  </div>
-                  <div className="mt-5 flex items-center gap-5 text-[13px] text-white/55">
-                    <span className="flex items-center gap-1.5">
-                      <Users className="h-4 w-4 text-white/35" /> {p.teams ?? "·"} teams
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Layers className="h-4 w-4 text-white/35" /> {p.rounds ?? "·"} rounds
-                    </span>
-                    <span className="ml-auto flex items-center gap-1 font-medium text-cyan-glow/80">
-                      Open <ArrowUpRight className="h-4 w-4" />
-                    </span>
-                  </div>
-                </GlassCard>
-              </motion.div>
-            ))}
-          </motion.div>
+          <TeamsPanel
+            teams={teams}
+            reload={load}
+            onOpenRounds={(teamId) => navigate(`/admin/team/${teamId}`)}
+          />
         )}
       </div>
-
-      {/* create modal — a real <form> so Enter submits natively */}
-      <Modal open={creating} onClose={() => setCreating(false)}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createProject();
-          }}
-        >
-          <h3 className="text-xl">New project</h3>
-          <p className="mt-1 text-[14px] text-white/50">Name it after the cycle, team, or award.</p>
-          <div className="mt-5">
-            <Input
-              label="Project name"
-              value={name}
-              autoFocus
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="mt-6 flex gap-3">
-            <Button type="button" variant="glass" block onClick={() => setCreating(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" block loading={busy}>
-              Create
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </AppShell>
   );
 }

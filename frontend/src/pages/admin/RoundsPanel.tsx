@@ -47,29 +47,25 @@ const DURATIONS = [
 ];
 
 export function RoundsPanel({
-  projectId,
-  teams,
+  team,
   rounds,
   reload,
 }: {
-  projectId: number;
-  teams: Team[];
+  team: Team;
   rounds: Round[];
   reload: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [teamId, setTeamId] = useState<number | "">("");
   const [opens, setOpens] = useState(localInput(new Date()));
   const [closes, setCloses] = useState(localInput(new Date(Date.now() + 10 * 60 * 1000)));
   const [busy, setBusy] = useState(false);
 
   function openForm() {
-    if (!teams.length) return toast("Create a team first", "err");
+    if (!team.members.length) return toast("Add teammates to this team first", "err");
     const now = new Date();
     setOpens(localInput(now));
     setCloses(localInput(new Date(now.getTime() + 10 * 60 * 1000)));
-    setTeamId(teams[0].id);
     setName("");
     setCreating(true);
   }
@@ -80,14 +76,14 @@ export function RoundsPanel({
   }
 
   async function create() {
-    if (!name.trim() || !teamId || !opens || !closes) return toast("Fill in all fields", "err");
+    if (!name.trim() || !opens || !closes) return toast("Fill in all fields", "err");
     setBusy(true);
     try {
-      await api(`/projects/${projectId}/rounds`, {
+      await api(`/teams/${team.id}/rounds`, {
         method: "POST",
         body: {
           name: name.trim(),
-          team_id: teamId,
+          team_id: team.id,
           start_at: new Date(opens).toISOString(),
           end_at: new Date(closes).toISOString(),
         },
@@ -121,20 +117,6 @@ export function RoundsPanel({
           >
             <GlassCard tilt={false} className="p-6">
               <Input label="Round name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-              <div className="mt-4">
-                <label className="mb-2 block text-[13px] text-white/50">Team</label>
-                <select
-                  value={teamId}
-                  onChange={(e) => setTeamId(Number(e.target.value))}
-                  className="ring-focus h-12 w-full rounded-xl2 border border-white/10 bg-white/[0.03] px-4 text-[14px] text-white/90 outline-none focus:border-cyan-glow/50"
-                >
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id} className="bg-ink-800">
-                      {t.name} ({t.members.length})
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-[13px] text-white/50">Opens</label>

@@ -47,39 +47,17 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class Project(Base):
-    """Top-level container the admin creates. Holds teams and voting rounds."""
-
-    __tablename__ = "projects"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    # Soft delete: set instead of removing the row, so data is retained/auditable.
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
-
-    teams: Mapped[list["Team"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-    rounds: Mapped[list["VotingRound"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan"
-    )
-
-
 class Team(Base):
-    """A reusable roster. One team can back many voting rounds over time."""
+    """A reusable roster, top-level (no project grouping). One team can back
+    many voting rounds over time."""
 
     __tablename__ = "teams"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
-    project: Mapped["Project"] = relationship(back_populates="teams")
     members: Mapped[list["TeamMember"]] = relationship(
         back_populates="team", cascade="all, delete-orphan"
     )
@@ -104,15 +82,14 @@ class TeamMember(Base):
 
 
 class VotingRound(Base):
-    """One voting window over a team. (The 'VotingProject' in the ERD.)"""
+    """One voting window over a team."""
 
     __tablename__ = "voting_rounds"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), index=True
     )
-    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Shareable voting-link slug, e.g. "x7f2k9".
     vote_token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
@@ -123,7 +100,6 @@ class VotingRound(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
-    project: Mapped["Project"] = relationship(back_populates="rounds")
     team: Mapped["Team"] = relationship()
 
 

@@ -1,27 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, Trash2, Pencil, Check, UserPlus, X, Users } from "lucide-react";
+import { Plus, Trash2, Pencil, Check, UserPlus, X, Users, Radio } from "lucide-react";
 import GlassCard from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { EmailAdder } from "@/components/ui/EmailAdder";
+import { DirectorySuggestions, filterDirectory, MAX_SUGGESTIONS } from "@/components/ui/DirectorySuggestions";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Avatar } from "@/components/ui/Bits";
 import { confirmDialog } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
-import type { Team } from "@/lib/types";
+import type { DirectoryUser, Team } from "@/lib/types";
 import { toast } from "@/components/Toast";
 import { isEmail } from "@/lib/format";
 import { listContainer, listItem } from "@/components/PageTransition";
 
 export function TeamsPanel({
-  projectId,
   teams,
   reload,
+  onOpenRounds,
 }: {
-  projectId: number;
   teams: Team[];
   reload: () => void;
+  /** Navigate to this team's rounds & results. Omit to hide the affordance. */
+  onOpenRounds?: (teamId: number) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -29,13 +31,33 @@ export function TeamsPanel({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [addEmail, setAddEmail] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addHighlight, setAddHighlight] = useState(-1);
+
+  // Registered, non-admin accounts — powers the "pick a teammate by name"
+  // autocomplete on both the create-team form and the edit-team add-member
+  // input. A fetch failure degrades gracefully: the fields still work as
+  // plain manual email entry, just without suggestions.
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  useEffect(() => {
+    api<DirectoryUser[]>("/users")
+      .then(setDirectory)
+      .catch((e) => console.error("Could not load teammate directory", e));
+  }, []);
+
+  const MIN_TEAM_SIZE = 3;
 
   async function createTeam() {
     if (!name.trim()) return toast("Name the team", "err");
-    if (emails.length === 0) return toast("Add at least one member", "err");
+    if (emails.length < MIN_TEAM_SIZE) {
+      return toast(
+        `A team needs at least ${MIN_TEAM_SIZE} members to create — please add a few more teammates.`,
+        "err",
+      );
+    }
     setBusy(true);
     try {
-      await api(`/projects/${projectId}/teams`, {
+      await api("/teams", {
         method: "POST",
         body: { name: name.trim(), emails },
       });
@@ -69,13 +91,15 @@ export function TeamsPanel({
     }
   }
 
-  async function addMember(t: Team) {
-    const e = addEmail.trim().toLowerCase();
+  async function addMember(t: Team, emailOverride?: string) {
+    const e = (emailOverride ?? addEmail).trim().toLowerCase();
     if (!isEmail(e)) return toast("Enter a valid email", "err");
     try {
       await api(`/teams/${t.id}/members`, { method: "POST", body: { email: e } });
       toast("Teammate added", "ok");
       setAddEmail("");
+      setAddOpen(false);
+      setAddHighlight(-1);
       reload();
     } catch (err: any) {
       toast(err?.message || "Could not add", "err");
@@ -119,12 +143,29 @@ export function TeamsPanel({
             <GlassCard tilt={false} className="p-6">
               <Input label="Team name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
               <div className="mt-4">
-                <p className="mb-2 text-[13px] text-white/50">Members</p>
-                <EmailAdder value={emails} onChange={setEmails} label="teammate@company.com" />
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[13px] text-white/50">Members</p>
+                  <span
+                    className={`text-[12px] font-medium ${
+                      emails.length >= MIN_TEAM_SIZE ? "text-emerald-glow" : "text-white/35"
+                    }`}
+                  >
+                    {emails.length} / {MIN_TEAM_SIZE} minimum
+                  </span>
+                </div>
+                <EmailAdder
+                  value={emails}
+                  onChange={setEmails}
+                  label="teammate@company.com"
+                  hint={`Type a name to pick a registered teammate, or type an email and press Enter (or tap +) to add anyone else — you need at least ${MIN_TEAM_SIZE} teammates to open voting for this team.`}
+                  directory={directory}
+                />
               </div>
               <div className="mt-5 flex justify-end gap-3">
                 <Button variant="glass" onClick={() => setCreating(false)}>Cancel</Button>
-                <Button loading={busy} onClick={createTeam}>Create team</Button>
+                <Button loading={busy} disabled={emails.length < MIN_TEAM_SIZE || !name.trim()} onClick={createTeam}>
+                  Create team
+                </Button>
               </div>
             </GlassCard>
           </motion.div>
@@ -155,10 +196,21 @@ export function TeamsPanel({
                       </h3>
                     </div>
                     <div className="flex gap-1.5">
+                      {onOpenRounds ? (
+                        <button
+                          onClick={() => onOpenRounds(t.id)}
+                          className="ring-focus grid h-9 w-9 place-items-center rounded-xl text-white/50 transition hover:bg-white/[0.06] hover:text-white"
+                          aria-label="Rounds & results"
+                        >
+                          <Radio className="h-[16px] w-[16px]" />
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => {
                           setEditing(isEditing ? null : t.id);
                           setAddEmail("");
+                          setAddOpen(false);
+                          setAddHighlight(-1);
                         }}
                         className={`ring-focus grid h-9 w-9 place-items-center rounded-xl transition ${
                           isEditing ? "bg-cyan-glow/20 text-cyan-glow" : "text-white/50 hover:bg-white/[0.06] hover:text-white"
@@ -197,13 +249,56 @@ export function TeamsPanel({
                         </div>
                       ))}
                       <div className="mt-1 flex gap-2">
-                        <div className="flex-1">
+                        <div className="relative flex-1">
                           <Input
                             label="Add teammate email"
                             value={addEmail}
-                            onChange={(e) => setAddEmail(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && addMember(t)}
+                            onChange={(e) => {
+                              setAddEmail(e.target.value);
+                              setAddHighlight(-1);
+                              setAddOpen(true);
+                            }}
+                            onFocus={() => setAddOpen(true)}
+                            onBlur={() => setAddOpen(false)}
+                            onKeyDown={(e) => {
+                              const existing = t.members.map((m) => m.email);
+                              const matches = filterDirectory(directory, addEmail, existing);
+                              if (e.key === "ArrowDown") {
+                                e.preventDefault();
+                                setAddOpen(true);
+                                setAddHighlight((h) =>
+                                  Math.min(h + 1, Math.min(matches.length, MAX_SUGGESTIONS) - 1),
+                                );
+                              } else if (e.key === "ArrowUp") {
+                                e.preventDefault();
+                                setAddHighlight((h) => Math.max(h - 1, -1));
+                              } else if (e.key === "Escape") {
+                                setAddOpen(false);
+                                setAddHighlight(-1);
+                              } else if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (addOpen && addHighlight >= 0 && matches[addHighlight]) {
+                                  addMember(t, matches[addHighlight].email);
+                                } else {
+                                  addMember(t);
+                                }
+                              }
+                            }}
+                            hint="Type a name to pick a registered teammate, or press Enter / tap + to add any email."
                           />
+                          <AnimatePresence>
+                            {addOpen ? (
+                              <DirectorySuggestions
+                                matches={filterDirectory(
+                                  directory,
+                                  addEmail,
+                                  t.members.map((m) => m.email),
+                                )}
+                                highlighted={addHighlight}
+                                onPick={(u) => addMember(t, u.email)}
+                              />
+                            ) : null}
+                          </AnimatePresence>
                         </div>
                         <button
                           onClick={() => addMember(t)}

@@ -1,7 +1,29 @@
 """Pydantic request/response models."""
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from email_validator import EmailNotValidError, validate_email
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
+
+
+def _validate_roster_email(v: str) -> str:
+    """Format-checked email for admin-entered rosters (team members). Unlike
+    `EmailStr`, this allows RFC 2606 reserved/special-use domains (.test,
+    .example, .invalid, .localhost) — those are exactly what internal demo/
+    seed/QA fixtures legitimately use, and a real admin roster has no
+    deliverability requirement the way a self-signup account does. Still
+    rejects genuinely malformed input (no "@", no domain, stray spaces, …).
+    `check_deliverability=False` skips live DNS/MX lookups, which would be
+    wrong here anyway — an admin roster entry shouldn't fail because of a
+    transient DNS hiccup or a corporate mail server that blocks lookups."""
+    try:
+        info = validate_email(v, check_deliverability=False, test_environment=True)
+    except EmailNotValidError as e:
+        raise ValueError(str(e)) from e
+    return info.normalized
+
+
+RosterEmail = Annotated[str, BeforeValidator(_validate_roster_email)]
 
 
 # ---------- auth ----------
@@ -63,23 +85,11 @@ class MessageOut(BaseModel):
     message: str
 
 
-# ---------- projects ----------
-class ProjectIn(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-
-
-class ProjectOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    name: str
-    created_at: datetime
-
-
 # ---------- teams / members ----------
 class TeamIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     # Emails one per entry; display name defaults to the local-part if omitted.
-    emails: list[EmailStr] = Field(min_length=1)
+    emails: list[RosterEmail] = Field(min_length=1)
 
 
 class MemberOut(BaseModel):
@@ -97,8 +107,17 @@ class TeamOut(BaseModel):
 
 
 class MemberIn(BaseModel):
-    email: EmailStr
+    email: RosterEmail
     display_name: str | None = None
+
+
+class DirectoryUserOut(BaseModel):
+    """A registered, non-admin account — powers the "pick a teammate by name"
+    autocomplete when building a team roster."""
+
+    model_config = ConfigDict(from_attributes=True)
+    email: str
+    display_name: str
 
 
 # ---------- rounds ----------
@@ -112,7 +131,6 @@ class RoundIn(BaseModel):
 class RoundOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    project_id: int
     team_id: int
     name: str
     vote_token: str
