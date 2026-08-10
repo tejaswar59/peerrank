@@ -52,16 +52,12 @@ export function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-export function isEmail(s: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
 export function voteLink(token: string): string {
-  return location.origin + "/app/#/vote/" + token;
+  return location.origin + "/app/#/r/" + token;
 }
 
-export function initials(nameOrEmail: string): string {
-  const base = (nameOrEmail || "").split("@")[0].replace(/[._-]+/g, " ").trim();
+export function initials(name: string): string {
+  const base = (name || "").replace(/[._-]+/g, " ").trim();
   const parts = base.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();

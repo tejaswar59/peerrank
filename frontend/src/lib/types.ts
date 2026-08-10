@@ -1,78 +1,60 @@
 // Types mirror the FastAPI Pydantic schemas EXACTLY (app/schemas.py).
 // Do not change field names — the backend contract is fixed.
-
-export type Role = "admin" | "member";
-
-export interface LoginOut {
-  token: string;
-  email: string;
-  role: Role;
-}
-export interface MeOut {
-  email: string;
-  role: Role;
-}
-export interface MessageOut {
-  message: string;
-}
-export interface AuthConfig {
-  google_client_id: string;
-}
+//
+// No accounts anywhere in this app: a Poll is created once (name + a fixed
+// roster + a timer), and anyone with the link identifies themselves only by
+// picking their own name off the roster.
 
 export interface Member {
   id: number;
-  email: string;
   display_name: string;
 }
 
-// GET /api/users — registered, non-admin accounts, for the "pick a teammate
-// by name" autocomplete when building a team roster.
-export interface DirectoryUser {
-  email: string;
-  display_name: string;
-}
-export interface Team {
+export interface Poll {
   id: number;
   name: string;
+  vote_token: string;
+  // Private — the creator's own secret. Shown once, on creation, and never
+  // again by any other endpoint. Only this can fetch results; the shared
+  // vote_token structurally cannot.
+  admin_token: string;
+  status: string; // "open" | "closed"
+  duration_minutes: number;
+  closes_at: string;
+  created_at: string;
   members: Member[];
 }
 
-export interface Round {
+// GET /api/polls/{token}/status — powers both the creator's live count and
+// the voter's "select your name" screen.
+export interface RosterMemberStatus {
   id: number;
-  team_id: number;
-  name: string;
-  vote_token: string;
-  start_at: string;
-  end_at: string;
-  status: string; // "open" | "closed"
-}
-
-export interface ParticipationRow {
-  email: string;
+  display_name: string;
   voted: boolean;
 }
-export interface Participation {
-  round_id: number;
-  total: number;
-  submitted: number;
-  pending: number;
-  completion_pct: number;
-  rows: ParticipationRow[];
+export interface PollStatus {
+  name: string;
+  status: string;
+  closes_at: string;
+  seconds_remaining: number;
+  total_members: number;
+  voted_count: number;
+  members: RosterMemberStatus[];
 }
 
 export interface Candidate {
   id: number;
   display_name: string;
-  email: string;
 }
-export interface VotePage {
-  round_id: number;
-  round_name: string;
-  team_name: string;
-  signed_in_as: string;
-  end_at: string;
+
+// GET /api/polls/{token}/candidates/{member_id} — the ranking screen for one
+// picked name: everyone else on the roster, self excluded.
+export interface BallotPage {
+  poll_name: string;
+  member_id: number;
+  member_name: string;
   status: string;
-  already_voted: boolean;
+  closes_at: string;
   candidates: Candidate[];
 }
 
@@ -83,21 +65,7 @@ export interface ResultRow {
   rank: number;
 }
 export interface ResultOut {
-  round_id: number;
+  poll_name: string;
   computed_at: string;
   ranking: ResultRow[];
-}
-
-// GET /api/auth/history — the signed-in member's finished rounds + their rank.
-export interface HistoryEntry {
-  round_id: number;
-  team_name: string;
-  round_name: string;
-  rank: number;
-  points: number;
-  total: number;
-  computed_at: string | null;
-  end_at: string | null;
-  ranking: ResultRow[]; // full frozen leaderboard for the round
-  member_id: number; // this member's row id, to highlight "you"
 }
