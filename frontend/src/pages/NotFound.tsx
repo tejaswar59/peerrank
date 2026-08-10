@@ -1,13 +1,10 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Home, Compass } from "lucide-react";
+import { Home } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Wordmark } from "@/components/Brand";
-import { useSession } from "@/lib/useSession";
-import { homeFor } from "@/routes/guards";
 
 export default function NotFound() {
-  const s = useSession();
   return (
     <div className="relative z-[2] flex min-h-screen flex-col items-center justify-center px-4 text-center">
       <Link to="/" className="ring-focus mb-10 rounded-xl">
@@ -54,18 +51,11 @@ export default function NotFound() {
         transition={{ delay: 0.3 }}
         className="mt-8 flex gap-3"
       >
-        <Link to={s.token ? homeFor(s.role) : "/"}>
+        <Link to="/">
           <Button size="lg" leftIcon={<Home className="h-5 w-5" />}>
-            {s.token ? "Back to dashboard" : "Back home"}
+            Back home
           </Button>
         </Link>
-        {!s.token ? (
-          <Link to="/login">
-            <Button variant="glass" size="lg" leftIcon={<Compass className="h-5 w-5" />}>
-              Sign in
-            </Button>
-          </Link>
-        ) : null}
       </motion.div>
     </div>
   );

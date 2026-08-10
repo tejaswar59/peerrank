@@ -6,52 +6,26 @@ class Settings(BaseSettings):
     # SQLite by default; set DATABASE_URL to a Postgres URL later with no code change.
     database_url: str = "sqlite:///./peerrank.db"
 
-    secret_key: str = "dev-secret-change-me"
-    token_ttl_seconds: int = 60 * 60 * 8  # 8 hours
-
-    # --- Temporary dev login. Replaced by Google OAuth later. ---
-    admin_username: str = "admin"
-    voter_username: str = "user"
-    dev_password: str = "123"
-    admin_email: str = "admin@peerrank.local"
-    dev_voter_email: str = "teja@aufgang.com"
-
-    # How often the auto-close sweep runs (seconds).
-    sweep_interval_seconds: int = 60
-
-    # Rate limits (per client IP, fixed window). Tunable without code changes.
-    login_rate_max: int = 10
-    login_rate_window: int = 60
-    submit_rate_max: int = 5
-    submit_rate_window: int = 60
-    otp_rate_max: int = 5          # signup/resend requests per window per IP
-    otp_rate_window: int = 300
-
-    # --- Sign-up + email OTP verification ---
     app_name: str = "Peer Rank"
-    password_min_length: int = 8
-    otp_length: int = 6
-    otp_ttl_seconds: int = 600     # 10 minutes
-    otp_max_attempts: int = 5
 
-    # Google Sign-In. Set to your OAuth 2.0 Web client ID (…apps.googleusercontent.com).
-    # Empty -> the "Sign in with Google" button is hidden and the endpoint is off.
-    google_client_id: str = ""
+    # How often the auto-close sweep runs (seconds) — closes any poll whose
+    # timer has run out even if nobody has the page open.
+    sweep_interval_seconds: int = 15
 
-    # DEV master OTP: when set, this code verifies ANY email without the real
-    # emailed code — a bypass so sign-up works before SMTP is wired up.
-    # SECURITY: it lets anyone verify any address. MUST be cleared (MASTER_OTP="")
-    # in production. See the DEPLOY.md checklist.
-    master_otp: str = "112233"
+    # Duration options offered when creating a poll (minutes). The creator
+    # picks one; anything outside this range is rejected server-side too.
+    min_duration_minutes: int = 1
+    max_duration_minutes: int = 24 * 60  # 1 day
 
-    # SMTP for sending the OTP email (Gmail). Leave SMTP_HOST empty in dev — the
-    # code is then logged to the server console instead of emailed.
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
-    smtp_from: str = "Peer Rank <no-reply@peerrank.local>"
-    smtp_use_tls: bool = True
+    # Rate limit for ballot submission (per client IP, fixed window) — the
+    # one endpoint worth throttling since it's write-heavy and has no login
+    # to rely on for abuse control.
+    submit_rate_max: int = 10
+    submit_rate_window: int = 60
+
+    # Rate limit for poll creation (per client IP) — prevents link-spam.
+    create_rate_max: int = 20
+    create_rate_window: int = 300
 
     # Allowed browser origins for the API. "*" (default) is fine for local dev;
     # in production set to your real frontend origin(s), comma-separated, e.g.

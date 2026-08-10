@@ -1,68 +1,69 @@
-import { useEffect, useState, useCallback } from "react";
-import { useParams, useNavigate, Navigate, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { Reorder, motion, AnimatePresence } from "framer-motion";
 import {
   GripVertical,
   Trophy,
   Lock,
-  ShieldAlert,
-  Ban,
   LinkIcon,
   CheckCircle2,
   ArrowUp,
-  Home,
+  ArrowLeft,
+  ShieldCheck,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { VotePage, Candidate, ResultOut } from "@/lib/types";
-import { useSession } from "@/lib/useSession";
-import { session } from "@/lib/session";
+import type { BallotPage, Candidate, PollStatus } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { OrbLoader, Avatar } from "@/components/ui/Bits";
 import GlassCard from "@/components/ui/GlassCard";
 import { Countdown } from "@/components/ui/Countdown";
-import { homeFor } from "@/routes/guards";
-import { Leaderboard } from "@/components/Leaderboard";
 import { Wordmark } from "@/components/Brand";
 import { toast } from "@/components/Toast";
 
+// Voters NEVER see results — there is no vote_token-scoped results endpoint
+// at all (see app/routers/polls.py). Once a poll closes, this is the only
+// thing anyone with the voter link ever sees, whether they voted or not.
 type Phase =
   | { k: "loading" }
-  | { k: "ballot"; page: VotePage; order: Candidate[] }
-  | { k: "locked"; page: VotePage }
-  | { k: "closed"; page: VotePage; results: ResultOut | null }
-  | { k: "notmember" }
-  | { k: "notfound" }
-  | { k: "admin" };
+  | { k: "select"; status: PollStatus }
+  | { k: "ballot"; page: BallotPage; order: Candidate[] }
+  | { k: "locked"; memberName: string; closesAt: string }
+  | { k: "closed"; pollName: string }
+  | { k: "notfound" };
+
+// Remembers "I already voted as this name" per poll link, purely so a page
+// refresh doesn't bounce someone back to "select your name" — there's no
+// account behind it, so it's a convenience, not a security boundary. The
+// server is still the only thing that actually blocks a name from voting twice.
+function votedKey(token: string) {
+  return `pr_voted_${token}`;
+}
+function readVoted(token: string): { memberId: number; memberName: string } | null {
+  try {
+    const raw = localStorage.getItem(votedKey(token));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function writeVoted(token: string, memberId: number, memberName: string) {
+  try {
+    localStorage.setItem(votedKey(token), JSON.stringify({ memberId, memberName }));
+  } catch {
+    /* localStorage unavailable — refresh will just re-ask for a name */
+  }
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
-  const s = useSession();
   const navigate = useNavigate();
   return (
     <div className="relative z-[2] mx-auto min-h-screen w-full max-w-2xl px-4 py-10">
       <div className="mb-8 flex justify-center">
-        <button
-          onClick={() => s.token && navigate(homeFor(s.role))}
-          className="ring-focus rounded-xl"
-          aria-label="Peer Rank home"
-        >
+        <button onClick={() => navigate("/")} className="ring-focus rounded-xl" aria-label="Peer Rank home">
           <Wordmark size={34} />
         </button>
       </div>
       {children}
-    </div>
-  );
-}
-
-// A "back to home" button for the post-vote screens (member → /home).
-function BackHome() {
-  const s = useSession();
-  const navigate = useNavigate();
-  if (!s.token) return null;
-  return (
-    <div className="mt-6 flex justify-center">
-      <Button variant="glass" leftIcon={<Home className="h-[18px] w-[18px]" />} onClick={() => navigate(homeFor(s.role))}>
-        Back to home
-      </Button>
     </div>
   );
 }
@@ -96,170 +97,140 @@ function Notice({
 
 export default function Vote() {
   const { token = "" } = useParams();
-  const s = useSession();
   const navigate = useNavigate();
-  const location = useLocation();
   const [phase, setPhase] = useState<Phase>({ k: "loading" });
   const [submitting, setSubmitting] = useState(false);
-
-  const switchAccount = useCallback(() => {
-    session.clear();
-    navigate("/login", { state: { from: `/vote/${token}` } });
-  }, [navigate, token]);
 
   const load = useCallback(async () => {
     setPhase({ k: "loading" });
     try {
-      const page = await api<VotePage>(`/vote/${token}`);
-      if (page.status === "closed") {
-        let results: ResultOut | null = null;
-        try {
-          results = await api<ResultOut>(`/vote/${token}/results`);
-        } catch {
-          results = null;
-        }
-        setPhase({ k: "closed", page, results });
-      } else if (page.already_voted) {
-        setPhase({ k: "locked", page });
-      } else {
-        setPhase({ k: "ballot", page, order: page.candidates });
+      const status = await api<PollStatus>(`/polls/${token}/status`);
+      if (status.status === "closed") {
+        setPhase({ k: "closed", pollName: status.name });
+        return;
       }
+      const mine = readVoted(token);
+      if (mine && status.members.some((m) => m.id === mine.memberId && m.voted)) {
+        setPhase({ k: "locked", memberName: mine.memberName, closesAt: status.closes_at });
+        return;
+      }
+      setPhase({ k: "select", status });
     } catch (e) {
       const err = e as ApiError;
-      if (err.status === 403) setPhase({ k: "notmember" });
-      else if (err.status === 404) setPhase({ k: "notfound" });
+      if (err.status === 404) setPhase({ k: "notfound" });
       else {
-        toast(err.message || "Could not load this round", "err");
+        toast(err.message || "Could not load this poll", "err");
         setPhase({ k: "notfound" });
       }
     }
   }, [token]);
 
   useEffect(() => {
-    if (!s.token || s.role === "admin") return;
     load();
-  }, [s.token, s.role, load]);
+  }, [load]);
 
-  // Auto-reveal: while a voter is on the "Ballot locked in" screen, quietly poll
-  // for closure. The round can close early (everyone voted) or on the deadline;
-  // either way the screen flips to the results podium — no manual refresh, and
-  // no loader flash (we only swap phase once it's actually closed).
+  // While waiting on the timer (locked) or before picking a name (select),
+  // quietly poll so the screen flips to results the instant the poll closes
+  // — no manual refresh needed.
   useEffect(() => {
-    if (phase.k !== "locked") return;
+    if (phase.k !== "locked" && phase.k !== "select") return;
     let cancelled = false;
     const check = async () => {
       try {
-        const page = await api<VotePage>(`/vote/${token}`);
-        if (!cancelled && page.status === "closed") {
-          const results = await api<ResultOut>(`/vote/${token}/results`).catch(() => null);
-          setPhase({ k: "closed", page, results });
+        const status = await api<PollStatus>(`/polls/${token}/status`);
+        if (cancelled) return;
+        if (status.status === "closed") {
+          setPhase({ k: "closed", pollName: status.name });
+        } else if (phase.k === "select") {
+          setPhase({ k: "select", status });
         }
       } catch {
         /* transient — try again next tick */
       }
     };
-    const id = setInterval(check, 8000); // poll every 8s while locked
+    const id = setInterval(check, phase.k === "select" ? 4000 : 8000);
     const onVis = () => document.visibilityState === "visible" && check();
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("focus", check); // instant re-check when tab refocuses
     return () => {
       cancelled = true;
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("focus", check);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase.k, token]);
 
-  // Auth gate — send to login, remember where we were headed.
-  if (!s.token) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-
-  if (s.role === "admin") {
-    return (
-      <Shell>
-        <Notice
-          icon={<ShieldAlert className="h-8 w-8" />}
-          tone="bg-amber-400/15 text-amber-300"
-          title="Admins don't vote here"
-          message="This link is for team members. Sign in with a member account to cast a ballot."
-          action={<Button variant="glass" onClick={switchAccount}>Use another account</Button>}
-        />
-      </Shell>
-    );
+  async function pick(memberId: number) {
+    try {
+      const page = await api<BallotPage>(`/polls/${token}/candidates/${memberId}`);
+      setPhase({ k: "ballot", page, order: page.candidates });
+    } catch (e) {
+      const err = e as ApiError;
+      toast(err.message || "Could not open your ballot", "err");
+      load();
+    }
   }
 
   async function submit() {
     if (phase.k !== "ballot" || submitting) return;
     setSubmitting(true);
     try {
-      await api(`/vote/${token}`, {
+      await api(`/polls/${token}/vote`, {
         method: "POST",
-        body: { ranked_member_ids: phase.order.map((c) => c.id) },
+        body: { member_id: phase.page.member_id, ranked_member_ids: phase.order.map((c) => c.id) },
       });
+      writeVoted(token, phase.page.member_id, phase.page.member_name);
       toast("Ballot submitted — thank you!", "ok");
-      // This vote may have been the last one, auto-closing the round — re-check
-      // so the voter lands straight on the results podium if so.
+      // This vote may have been the last one, auto-closing the poll — re-check
+      // so the voter lands straight on the results if so.
       try {
-        const page = await api<VotePage>(`/vote/${token}`);
-        if (page.status === "closed") {
-          const results = await api<ResultOut>(`/vote/${token}/results`).catch(() => null);
-          setPhase({ k: "closed", page, results });
+        const status = await api<PollStatus>(`/polls/${token}/status`);
+        if (status.status === "closed") {
+          setPhase({ k: "closed", pollName: status.name });
         } else {
-          setPhase({ k: "locked", page });
+          setPhase({ k: "locked", memberName: phase.page.member_name, closesAt: status.closes_at });
         }
       } catch {
-        setPhase({ k: "locked", page: phase.page });
+        setPhase({ k: "locked", memberName: phase.page.member_name, closesAt: phase.page.closes_at });
       }
     } catch (e) {
       const err = e as ApiError;
       toast(err.message || "Could not submit", "err");
-      if (err.status === 409) load();
       setSubmitting(false);
+      if (err.status === 409) load();
     }
   }
 
   return (
     <Shell>
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {phase.k === "loading" ? (
           <motion.div key="l" exit={{ opacity: 0 }}>
-            <OrbLoader label="Loading your ballot…" />
+            <OrbLoader label="Loading…" />
           </motion.div>
-        ) : phase.k === "notmember" ? (
-          <Notice
-            key="nm"
-            icon={<Ban className="h-8 w-8" />}
-            tone="bg-rose-500/15 text-rose-400"
-            title="You're not on this team"
-            message={`You're signed in as ${s.email}, which isn't on the roster for this round. Try another account.`}
-            action={<Button variant="glass" onClick={switchAccount}>Use another account</Button>}
-          />
         ) : phase.k === "notfound" ? (
           <Notice
             key="nf"
             icon={<LinkIcon className="h-8 w-8" />}
             tone="bg-white/8 text-white/60"
             title="Voting link not found"
-            message="This voting round doesn't exist or has been removed. Check the link and try again."
-            action={<Button variant="glass" onClick={() => navigate("/home")}>Go home</Button>}
+            message="This poll doesn't exist or has been removed. Check the link and try again."
+            action={<Button variant="glass" onClick={() => navigate("/")}>Go home</Button>}
           />
+        ) : phase.k === "select" ? (
+          <SelectNameView key="sel" status={phase.status} onPick={pick} />
         ) : phase.k === "locked" ? (
-          <LockedView key="lk" page={phase.page} />
+          <LockedView key="lk" memberName={phase.memberName} closesAt={phase.closesAt} />
         ) : phase.k === "closed" ? (
-          <ClosedView key="cl" page={phase.page} results={phase.results} />
+          <ClosedView key="cl" pollName={phase.pollName} />
         ) : (
-          <motion.div
-            key="ballot"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
+          <motion.div key="ballot" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="mb-6 text-center">
               <p className="text-[13px] font-medium uppercase tracking-wider text-cyan-glow/80">
-                {phase.page.team_name}
+                Voting as {phase.page.member_name}
               </p>
-              <h1 className="mt-1.5 text-3xl">{phase.page.round_name}</h1>
+              <h1 className="mt-1.5 text-3xl">{phase.page.poll_name}</h1>
               <p className="mt-2 text-[14px] text-white/50">
-                Drag to rank your teammates best-first · <Countdown end={phase.page.end_at} />
+                Drag to rank the rest of the group, best first · <Countdown end={phase.page.closes_at} />
               </p>
             </div>
 
@@ -270,48 +241,54 @@ export default function Vote() {
                 onReorder={(order) => setPhase({ ...phase, order })}
                 className="flex flex-col gap-2.5"
               >
-                {phase.order.map((c, i) => (
-                  <Reorder.Item
-                    key={c.id}
-                    value={c}
-                    whileDrag={{ scale: 1.03, zIndex: 10 }}
-                    className="group flex cursor-grab items-center gap-3 rounded-xl2 border border-white/8 bg-white/[0.03] px-3 py-2.5 active:cursor-grabbing"
-                  >
-                    <span
-                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[14px] font-bold tabnums ${
-                        i === 0
-                          ? "bg-gradient-to-br from-[#f5d580] to-[#e0b25a] text-ink-950"
-                          : "bg-white/8 text-white/60"
-                      }`}
+                {phase.order.map((c, i) => {
+                  // Same formula as the backend (app/scoring.py): position i
+                  // (0-based, best first) earns (L - i) + 1 points on THIS
+                  // ballot. Shown live so ranking feels like it means something,
+                  // not just an abstract order.
+                  const points = phase.order.length - i + 1;
+                  return (
+                    <Reorder.Item
+                      key={c.id}
+                      value={c}
+                      whileDrag={{ scale: 1.03, zIndex: 10 }}
+                      className="group flex cursor-grab items-center gap-3 rounded-xl2 border border-white/8 bg-white/[0.03] px-3 py-2.5 active:cursor-grabbing"
                     >
-                      {i + 1}
-                    </span>
-                    <Avatar name={c.display_name} size={36} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-medium text-white/90">{c.display_name}</p>
-                      <p className="truncate font-mono text-[12px] text-white/40">{c.email}</p>
-                    </div>
-                    <GripVertical className="h-5 w-5 shrink-0 text-white/25 transition group-hover:text-white/50" />
-                  </Reorder.Item>
-                ))}
+                      <span
+                        className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[14px] font-bold tabnums ${
+                          i === 0
+                            ? "bg-gradient-to-br from-[#f5d580] to-[#e0b25a] text-ink-950"
+                            : "bg-white/8 text-white/60"
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                      <Avatar name={c.display_name} size={36} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-medium text-white/90">{c.display_name}</p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-cyan-glow/25 bg-cyan-glow/10 px-2.5 py-1 text-[12px] font-semibold tabnums text-cyan-100">
+                        +{points} pt{points === 1 ? "" : "s"}
+                      </span>
+                      <GripVertical className="h-5 w-5 shrink-0 text-white/25 transition group-hover:text-white/50" />
+                    </Reorder.Item>
+                  );
+                })}
               </Reorder.Group>
             </GlassCard>
 
             <div className="mt-5 flex items-center justify-between gap-4">
               <p className="flex items-center gap-1.5 text-[13px] text-white/40">
-                <ArrowUp className="h-3.5 w-3.5" /> Top = most valued
+                <ArrowUp className="h-3.5 w-3.5" /> Top = most valued = most points
               </p>
-              <Button
-                size="lg"
-                loading={submitting}
-                onClick={submit}
-                leftIcon={<Trophy className="h-5 w-5" />}
-              >
+              <Button size="lg" loading={submitting} onClick={submit} leftIcon={<Trophy className="h-5 w-5" />}>
                 Submit ranking
               </Button>
             </div>
             <p className="mt-4 text-center text-[12px] text-white/35">
-              Signed in as {phase.page.signed_in_as} · your ballot is anonymous.
+              Points are just this ballot's contribution — everyone's ballots get added together for the final
+              leaderboard. Your ranking itself stays anonymous; nobody, including the poll's creator, can see who
+              ranked what.
             </p>
           </motion.div>
         )}
@@ -320,7 +297,49 @@ export default function Vote() {
   );
 }
 
-function LockedView({ page }: { page: VotePage }) {
+function SelectNameView({ status, onPick }: { status: PollStatus; onPick: (id: number) => void }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="mb-6 text-center">
+        <p className="text-[13px] font-medium uppercase tracking-wider text-cyan-glow/80">Select your name</p>
+        <h1 className="mt-1.5 text-3xl">{status.name}</h1>
+        <p className="mt-2 text-[14px] text-white/50">
+          {status.voted_count} / {status.total_members} voted · closes in <Countdown end={status.closes_at} phrase={false} />
+        </p>
+      </div>
+      <GlassCard tilt={false} className="p-3 sm:p-4">
+        <div className="flex flex-col gap-2">
+          {status.members.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              disabled={m.voted}
+              onClick={() => onPick(m.id)}
+              className={`ring-focus flex items-center gap-3 rounded-xl2 border px-4 py-3 text-left transition ${
+                m.voted
+                  ? "cursor-not-allowed border-white/5 bg-white/[0.015] opacity-50"
+                  : "border-white/8 bg-white/[0.03] hover:border-cyan-glow/40 hover:bg-white/[0.05]"
+              }`}
+            >
+              <Avatar name={m.display_name} size={38} />
+              <span className="flex-1 text-[15px] font-medium text-white/90">{m.display_name}</span>
+              {m.voted ? (
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-white/35">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Voted
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </GlassCard>
+      <p className="mt-4 text-center text-[12px] text-white/35">
+        Pick your own name — you'll then rank everyone else on the list.
+      </p>
+    </motion.div>
+  );
+}
+
+function LockedView({ memberName, closesAt }: { memberName: string; closesAt: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -338,37 +357,34 @@ function LockedView({ page }: { page: VotePage }) {
       </motion.div>
       <h2 className="text-2xl">Ballot locked in</h2>
       <p className="mx-auto mt-2 max-w-sm text-[14.5px] leading-relaxed text-white/55">
-        Thanks for ranking your team. Your vote is anonymous and can't be changed.
-        The leaderboard unlocks when <b className="text-white/80">{page.round_name}</b> closes.
+        Thanks, <b className="text-white/80">{memberName}</b>. Your vote is anonymous and can't be changed.
       </p>
       <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-[13px] text-white/60">
-        <Lock className="h-3.5 w-3.5" /> Results <Countdown end={page.end_at} />
+        <Lock className="h-3.5 w-3.5" /> Voting <Countdown end={closesAt} />
       </div>
-      <BackHome />
+      <p className="mt-4 text-[12px] text-white/35">Results go to whoever created this poll — not shown here.</p>
     </motion.div>
   );
 }
 
-function ClosedView({ page, results }: { page: VotePage; results: ResultOut | null }) {
+function ClosedView({ pollName }: { pollName: string }) {
+  const navigate = useNavigate();
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="mb-6 text-center">
-        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-[#f5d580]/15 text-[#f5d580]">
-          <Trophy className="h-7 w-7" />
+      <GlassCard tilt={false} className="p-9 text-center">
+        <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-white/[0.06] text-white/50">
+          <ShieldCheck className="h-8 w-8" />
         </div>
-        <h1 className="text-3xl">{page.round_name}</h1>
-        <p className="mt-1.5 text-[14px] text-white/50">Final leaderboard · {page.team_name}</p>
-      </div>
-      <GlassCard tilt={false} className="p-5 sm:p-6">
-        {results ? (
-          <Leaderboard data={results} />
-        ) : (
-          <p className="py-10 text-center text-[14px] text-white/45">
-            This round is closed. Results aren't available.
-          </p>
-        )}
+        <h1 className="text-2xl">{pollName}</h1>
+        <p className="mx-auto mt-2 max-w-sm text-[14.5px] leading-relaxed text-white/55">
+          Voting has closed. Thanks for taking part — results go only to whoever created this poll.
+        </p>
       </GlassCard>
-      <BackHome />
+      <div className="mt-6 flex justify-center">
+        <Button variant="glass" leftIcon={<ArrowLeft className="h-[18px] w-[18px]" />} onClick={() => navigate("/")}>
+          Start a new poll
+        </Button>
+      </div>
     </motion.div>
   );
 }

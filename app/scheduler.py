@@ -1,7 +1,8 @@
-"""Auto-close sweep: makes deadlines real even when nobody is on the site.
+"""Auto-close sweep: makes the countdown real even when nobody has the page open.
 
-Runs on a short interval, finds open rounds past end_at, closes them and freezes
-the leaderboard. Leaderboard computation is idempotent, so a double-run is safe.
+Runs on a short interval, finds open polls past closes_at, closes them and
+freezes the leaderboard. Leaderboard computation is idempotent, so a double-run
+is safe.
 """
 import asyncio
 import logging
@@ -18,47 +19,34 @@ log = logging.getLogger("peerrank.sweep")
 
 
 def run_sweep_once() -> int:
-    """Close open rounds that are either past their deadline OR fully voted.
+    """Close open polls that are either past their timer OR fully voted.
     Returns how many were closed. Leaderboard freeze is idempotent."""
     db = SessionLocal()
     closed = 0
     try:
         now = utcnow()
-        open_rounds = db.scalars(
-            select(models.VotingRound).where(
-                models.VotingRound.status == "open",
-                models.VotingRound.deleted_at.is_(None),
-            )
+        open_polls = db.scalars(
+            select(models.Poll).where(models.Poll.status == "open")
         ).all()
-        for rnd in open_rounds:
-            expired = rnd.end_at <= now
+        for poll in open_polls:
+            expired = poll.closes_at <= now
             all_voted = False
             if not expired:
                 roster_n = db.scalar(
                     select(func.count())
-                    .select_from(models.TeamMember)
-                    .where(
-                        models.TeamMember.team_id == rnd.team_id,
-                        models.TeamMember.deleted_at.is_(None),
-                    )
+                    .select_from(models.Candidate)
+                    .where(models.Candidate.poll_id == poll.id)
                 ) or 0
                 voted_n = db.scalar(
                     select(func.count())
                     .select_from(models.ParticipationLog)
-                    .where(models.ParticipationLog.round_id == rnd.id)
+                    .where(models.ParticipationLog.poll_id == poll.id)
                 ) or 0
                 all_voted = roster_n > 0 and voted_n >= roster_n
             if not (expired or all_voted):
                 continue
-            rnd.status = "closed"
-            compute_and_freeze(db, rnd.id)
-            db.add(
-                models.AuditLog(
-                    actor_email="system",
-                    action="round.autoclose",
-                    detail=f"round={rnd.id} name={rnd.name!r} reason={'expired' if expired else 'all-voted'}",
-                )
-            )
+            poll.status = "closed"
+            compute_and_freeze(db, poll.id)
             closed += 1
         if closed:
             db.commit()
@@ -77,7 +65,7 @@ async def sweep_loop(stop: asyncio.Event) -> None:
     while not stop.is_set():
         closed = await asyncio.to_thread(run_sweep_once)
         if closed:
-            log.info("auto-closed %d round(s)", closed)
+            log.info("auto-closed %d poll(s)", closed)
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
         except asyncio.TimeoutError:

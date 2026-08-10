@@ -6,32 +6,26 @@ host or CORS to wire up.
 
 ## Pre-deploy checklist
 
-- [ ] **`SECRET_KEY`** — set a long random value. Rotating it logs everyone out
-      (tokens are signed with it), so set it once per environment.
-      `python -c "import secrets; print(secrets.token_urlsafe(48))"`
+No accounts, no login, no secrets to rotate — there's nothing to authenticate
+in this app, so the checklist is short:
+
 - [ ] **`DATABASE_URL`** — see the database note below.
 - [ ] **`CORS_ORIGINS`** — set to your real origin (or leave `*` if the SPA is
       served same-origin, which it is by default).
 - [ ] **HTTPS/TLS** — terminate at the load balancer / platform (never serve this
       over plain HTTP; it handles real people's evaluations of each other).
-- [ ] **Google OAuth** — still a TODO. Until then the dev login (`admin`/`123`,
-      `user`/`123`) is live. **Do not expose a public deployment with the dev
-      login enabled** beyond a trusted demo. Wire OAuth in `app/auth.py` first,
-      or restrict access at the network layer.
 - [ ] **Persistent storage** — if using SQLite, mount a volume at `/data` so the
       DB survives redeploys (the image sets `DATABASE_URL=sqlite:////data/peerrank.db`).
-- [ ] **`MASTER_OTP`** — clear it (`MASTER_OTP=`). It's a dev bypass that verifies
-      any email without the emailed code; leaving it set lets anyone register any
-      address. The server logs a warning at startup while it's set.
-- [ ] **SMTP** — set `SMTP_*` (e.g. AWS SES) so real OTP emails send; otherwise
-      the code only appears in the server log.
+- [ ] **Anyone with a poll's link can vote as any name not yet taken** — this is
+      by design (no accounts), but means the link itself is the only access
+      control. Don't post a poll link somewhere more public than its intended
+      audience.
 
 ## Run with Docker
 
 ```bash
 docker build -t peerrank .
 docker run -p 8000:8000 \
-  -e SECRET_KEY="<random>" \
   -e CORS_ORIGINS="https://peerrank.arcitech.ai" \
   -v peerrank-data:/data \
   peerrank
@@ -92,6 +86,5 @@ is safe, but it is wasteful. Before scaling out, either:
 
 ## Not production-ready yet (known gaps)
 
-- Google OAuth (dev login still active).
 - Alembic migrations (currently `create_all` on startup).
 - Rate limiting is in-process (per instance); use a shared store if you scale out.
