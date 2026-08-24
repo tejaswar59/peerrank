@@ -17,6 +17,12 @@ COPY app ./app
 COPY web ./web
 
 # Data dir for the SQLite file (mount a volume here to persist across deploys).
+# 0777 because the platform running this image may assign an arbitrary
+# non-root UID at runtime (common on managed container platforms) — without
+# this, that user can't write into a directory created as root at build
+# time, and every DB write 500s with a bare "Internal Server Error" while
+# read-only routes (like /api/health) keep working fine.
+RUN mkdir -p /data && chmod 0777 /data
 ENV DATABASE_URL=sqlite:////data/peerrank.db
 VOLUME ["/data"]
 
