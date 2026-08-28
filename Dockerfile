@@ -6,6 +6,18 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# Prefer IPv4 when a hostname resolves to both A and AAAA records.
+#
+# Managed Postgres hosts (Neon, and others on AWS) publish BOTH. glibc's
+# getaddrinfo follows RFC 6724 and hands back the IPv6 addresses first, so a
+# container with no IPv6 route tries those and dies with
+#   "connection to server at 2406:da18:..., port 5432 failed:
+#    Cannot assign requested address"
+# even though perfectly good IPv4 addresses were also available. Raising the
+# precedence of IPv4-mapped addresses reorders the resolver's answer so IPv4 is
+# attempted first. IPv6 still works where it is actually available.
+RUN printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
+
 WORKDIR /srv
 
 # Install deps first for better layer caching.
