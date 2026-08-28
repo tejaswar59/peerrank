@@ -17,6 +17,28 @@ from .scheduler import sweep_loop
 
 log = logging.getLogger("peerrank.startup")
 
+
+def _setup_logging() -> None:
+    """Give the app's own loggers a handler.
+
+    uvicorn configures only its own loggers, so anything logged under
+    "peerrank.*" falls back to logging.lastResort, which drops INFO entirely and
+    prints WARNING+ unformatted. That is how a deploy ends up showing a
+    connection traceback with no indication of which database it was even
+    talking to.
+    """
+    app_log = logging.getLogger("peerrank")
+    if app_log.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    app_log.addHandler(handler)
+    app_log.setLevel(logging.INFO)
+    app_log.propagate = False
+
+
+_setup_logging()
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -59,6 +81,12 @@ async def lifespan(app: FastAPI):
     # Dev convenience: create tables if missing. (Use Alembic for real migrations.)
     # Retried because a managed database is frequently still accepting its first
     # connections when the app container starts.
+    # Say WHICH database, up front. Without this the only clue in a failure is a
+    # raw IP buried in a traceback, and it is very easy to spend a long time
+    # debugging a connection string that the container is not actually using
+    # (an env var edited but not redeployed, or overridden at another scope).
+    log.info("connecting to %s", describe_db_target())
+
     attempts = max(1, settings.db_startup_retries)
     for attempt in range(1, attempts + 1):
         try:
