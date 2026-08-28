@@ -1,12 +1,45 @@
+# Everything here is excluded from the docker build context.
+#
+# The image only needs app/ and the prebuilt web/ (see Dockerfile). The big win
+# below is frontend/node_modules: at ~273 MB it was 99% of the build context and
+# got uploaded to the docker daemon on EVERY build despite never being COPYed
+# into the image.
+
+# Python
 .venv/
 venv/
 __pycache__/
 *.pyc
-*.db
-*.sqlite3
 .pytest_cache/
+
+# Node / frontend build tooling. The built output in web/ is what ships;
+# nothing under frontend/ is needed to build the image.
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Local database files — the container gets its own at /data.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# Secrets: never bake these into an image layer.
+.env
+.env.*
+!.env.example
+
+# VCS + editor + local tooling
 .git/
 .gitignore
-peer-rank-mockups/
-.env
+.github/
+.vscode/
+.idea/
+.claude/
+.DS_Store
+
+# Docs and design assets
 *.md
+peer-rank-mockups/

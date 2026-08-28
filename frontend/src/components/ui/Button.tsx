@@ -79,7 +79,9 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
       style={{ x: sx, y: sy }}
       whileTap={{ scale: reduce ? 1 : 0.96 }}
       className={[
-        "group ring-focus relative inline-flex select-none items-center justify-center overflow-hidden font-medium transition-[box-shadow,background,color,opacity] duration-300",
+        // Named group for the same reason as GlassCard: a bare `group` leaks
+        // its hover state into every unnamed group-hover nested below it.
+        "group/btn ring-focus relative inline-flex select-none items-center justify-center overflow-hidden font-medium transition-[box-shadow,background,color,opacity] duration-300",
         "disabled:cursor-not-allowed disabled:opacity-50",
         VARIANT[variant],
         SIZE[size],
@@ -90,7 +92,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
     >
       {/* sheen sweep on hover */}
       {variant === "primary" || variant === "gold" ? (
-        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover/btn:translate-x-full" />
       ) : null}
       {loading ? (
         <Loader2 className="h-[1.1em] w-[1.1em] animate-spin" />

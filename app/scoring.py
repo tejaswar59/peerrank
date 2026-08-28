@@ -42,6 +42,16 @@ def compute_ranking(
     ballots = [list(b) for b in ballots]
     display_names = display_names or {}
 
+    # No ballots -> NO ranking. Returning an empty list is the only honest
+    # answer, and it must be handled here rather than in the caller: with zero
+    # ballots every member scores 0 and every tie-break tier is empty, so the
+    # sort falls through to join order and the uniqueness pass below then spreads
+    # them 0, -1, -2 -> shifted to 3, 2, 1. That invents a "winner" out of
+    # nothing — the first name on the roster appears to have won a poll nobody
+    # voted in. Callers must treat [] as "nobody voted", not as a leaderboard.
+    if not ballots:
+        return []
+
     points: dict[int, int] = {m: 0 for m in member_ids}
     # place_counts[member][place] = how many ballots put member at that 0-based place.
     place_counts: dict[int, dict[int, int]] = {m: {} for m in member_ids}

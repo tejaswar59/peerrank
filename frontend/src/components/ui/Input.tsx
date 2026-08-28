@@ -1,18 +1,36 @@
 import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Info } from "lucide-react";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: string;
   icon?: ReactNode;
   hint?: string;
+  // "warn" for a hint the user should actually notice (e.g. a limit reached).
+  // Deliberately not `error`, which turns the whole field red — hitting a
+  // length cap isn't a mistake, so it shouldn't look like one.
+  hintTone?: "muted" | "warn";
 }
 
 // Floating-label glass input. The label lifts when focused or filled; the ring
 // glows cyan on focus and rose on error.
 export const Input = forwardRef<HTMLInputElement, Props>(function Input(
-  { label, error, icon, hint, className = "", type, onFocus, onBlur, onChange, value, defaultValue, ...rest },
+  {
+    label,
+    error,
+    icon,
+    hint,
+    hintTone = "muted",
+    className = "",
+    type,
+    onFocus,
+    onBlur,
+    onChange,
+    value,
+    defaultValue,
+    ...rest
+  },
   ref,
 ) {
   const [focused, setFocused] = useState(false);
@@ -102,7 +120,14 @@ export const Input = forwardRef<HTMLInputElement, Props>(function Input(
             <AlertCircle className="h-3.5 w-3.5" /> {error}
           </motion.div>
         ) : hint ? (
-          <p className="pl-1 pt-1.5 text-[12px] text-white/35">{hint}</p>
+          <p
+            className={`flex items-center gap-1.5 pl-1 pt-1.5 text-[12px] ${
+              hintTone === "warn" ? "font-medium text-amber-300/90" : "text-white/35"
+            }`}
+          >
+            {hintTone === "warn" ? <Info className="h-3.5 w-3.5 shrink-0" /> : null}
+            {hint}
+          </p>
         ) : null}
       </AnimatePresence>
     </div>

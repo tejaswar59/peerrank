@@ -1,33 +1,34 @@
 # Render blueprint — one web service running the whole app (API + SPA).
-# Data lives in an external free Postgres (Neon); set DATABASE_URL in the dashboard.
+#
+# This app has NO accounts, NO login and NO email, so there are no secrets to
+# provision: the only setting that matters is DATABASE_URL.
+#
+# NOTE: buildCommand does not build the frontend. The SPA is served from the
+# prebuilt web/ directory that is committed to the repo, so run
+# `cd frontend && npm run build` and commit web/ BEFORE deploying, or you will
+# ship the previous UI.
 services:
   - type: web
     name: peerrank
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # --proxy-headers is required behind Render's load balancer: without it
+    # request.client.host is the balancer's IP for every visitor, so the
+    # per-IP rate limiter in app/ratelimit.py would treat all traffic as one
+    # client and start returning 429 to real voters.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /api/health
     envVars:
-      - key: SECRET_KEY
-        generateValue: true          # Render generates a strong secret
-      - key: MASTER_OTP
-        sync: false                  # set in dashboard (e.g. 112233 for the demo; blank for real prod)
-      - key: DEV_PASSWORD
-        sync: false                  # set a STRONG value (dev login uses it) — not "123"
-      - key: GOOGLE_CLIENT_ID
-        sync: false                  # OAuth Web client id -> enables "Sign in with Google"
+      # Postgres is strongly recommended over SQLite here: Render's free web
+      # services have an ephemeral filesystem, so a SQLite file would be lost
+      # on every deploy and restart. Set this to a managed Postgres URL, e.g.
+      # postgresql+psycopg://user:pass@host/db  (the psycopg driver is already
+      # in requirements.txt, so no code or image change is needed).
       - key: DATABASE_URL
-        sync: false                  # set to your Neon URL (postgresql+psycopg://...)
+        sync: false
+      # The SPA is served from the same origin as the API, so no cross-origin
+      # access is needed at all. Narrow this to your real domain if you ever
+      # serve the frontend from somewhere else.
       - key: CORS_ORIGINS
-        value: "*"                   # SPA is same-origin; safe to leave
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM
-        sync: false
+        value: "*"

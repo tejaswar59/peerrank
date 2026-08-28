@@ -266,6 +266,14 @@
   .tabnums {
     font-variant-numeric: tabular-nums;
   }
+  /* For any user-typed string (poll question, a person's name). `anywhere`
+     rather than `break-word` because it also breaks a single unbroken run of
+     characters ("aaaaaa…"), which is exactly the case that would otherwise
+     push the card's width past the viewport. */
+  .wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 
 /* Respect users who prefer reduced motion (OS-level or the in-app toggle). */

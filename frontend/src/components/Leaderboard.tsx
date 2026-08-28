@@ -152,10 +152,12 @@ export function Leaderboard({
 }) {
   const ranking = data.ranking;
   const max = Math.max(1, ...ranking.map((r) => r.points));
-  const totalPoints = ranking.reduce((a, r) => a + r.points, 0);
 
-  // Everyone at 0 points ⇒ no ballots were cast — show a clear "no votes" state.
-  if (totalPoints === 0) {
+  // No ballots ⇒ no ranking, ever. Keyed on ballot_count (and an empty ranking),
+  // NOT on "do the points sum to zero": the scorer spaces tied members apart so
+  // no two show the same number, which turned an all-zero tally into a
+  // 3/2/1 podium and sailed straight past a points-based check.
+  if (data.ballot_count === 0 || ranking.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl2 border border-dashed border-white/10 bg-white/[0.015] px-6 py-12 text-center">
         <div className="relative mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-white/[0.04] text-cyan-glow">

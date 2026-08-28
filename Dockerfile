@@ -32,4 +32,17 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers is REQUIRED, not cosmetic: behind a managed platform's ingress
+# every request arrives from the load balancer, so without it
+# request.client.host is the proxy's IP for ALL visitors. app/ratelimit.py keys
+# on that IP, so the entire internet would share one rate-limit bucket and
+# voters would start getting 429s once a poll got busy.
+#
+# SECURITY NOTE on --forwarded-allow-ips=*: this trusts the X-Forwarded-For
+# header from whoever connects. That is correct when the container is only
+# reachable through the platform's ingress (the normal setup). If you ever
+# expose this container directly to the internet, replace * with the actual
+# proxy IP/CIDR, or a client could spoof the header to dodge rate limiting.
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

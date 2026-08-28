@@ -9,6 +9,19 @@ host or CORS to wire up.
 No accounts, no login, no secrets to rotate — there's nothing to authenticate
 in this app, so the checklist is short:
 
+- [ ] **Rebuild the frontend** — `cd frontend && npm run build`. The image ships
+      the prebuilt `web/` directory; nothing in the Docker build creates it, so
+      skipping this silently deploys the previous UI.
+- [ ] **`--proxy-headers`** — already in the image's `CMD`. If you override the
+      start command, keep it: without it every request appears to come from the
+      load balancer's IP, and the per-IP rate limiter throttles all voters as
+      though they were one client.
+- [ ] **Schema change (one-time)** — the poll timer column was renamed
+      `duration_minutes` → `duration_seconds`. The app calls `create_all`, which
+      creates missing tables but **never alters existing ones**, so a database
+      that predates this change keeps the old NOT NULL column and every poll
+      creation fails. Drop the `polls`/`candidates`/`ballots`/`participation_log`/
+      `result_snapshots` tables (or reset the volume) once, before this deploy.
 - [ ] **`DATABASE_URL`** — see the database note below.
 - [ ] **`CORS_ORIGINS`** — set to your real origin (or leave `*` if the SPA is
       served same-origin, which it is by default).
@@ -86,5 +99,16 @@ is safe, but it is wasteful. Before scaling out, either:
 
 ## Not production-ready yet (known gaps)
 
-- Alembic migrations (currently `create_all` on startup).
+- Alembic migrations (currently `create_all` on startup). Because `create_all`
+  only ever CREATES tables, any column change needs a manual migration or a
+  table drop — see the schema-change item in the checklist above.
 - Rate limiting is in-process (per instance); use a shared store if you scale out.
+- **The container runs as root.** This is deliberate for now: managed platforms
+  mount persistent volumes with platform-chosen ownership, and a fixed non-root
+  UID often cannot write to them — which is exactly how you get a 500 on every
+  DB write while `/api/health` still returns 200. Moving to Postgres removes the
+  volume entirely and with it the reason to stay root; do that before adding a
+  `USER` line.
+- The frontend build is not part of the image build, so a stale `web/` can ship
+  silently. A multi-stage Dockerfile (node stage → python stage) would remove
+  that footgun.

@@ -55,14 +55,20 @@ No auth header on any of these — the poll's `vote_token` (in the URL) and, onc
 a name is picked, that candidate's id (in the body) are the only things that
 stand in for identity.
 
-- `POST /api/polls` — create a poll: `{name, member_names, duration_minutes}`
+- `POST /api/polls` — create a poll: `{name, member_names, duration_seconds}`.
+  The window is 5 seconds to 24 hours; the question is capped at 100 characters,
+  each name at 32, and a roster at 100 people (see `app/schemas.py`).
 - `GET /api/polls/{token}/status` — live status: who's voted, time remaining.
   Powers both the creator's live count and the voter's "select your name" screen.
 - `GET /api/polls/{token}/candidates/{member_id}` — after picking a name, the
   ranking screen for that name: everyone else on the roster, self excluded.
 - `POST /api/polls/{token}/vote` — submit one ranking: `{member_id, ranked_member_ids}`
-- `GET /api/polls/{token}/results` — frozen leaderboard, visible to anyone with
-  the link once the poll has closed
+- `POST /api/admin/{admin_token}/close` — end voting early. Admin-only and
+  idempotent; returns the frozen leaderboard. A voter's link cannot reach it.
+- `GET /api/admin/{admin_token}/results` — the frozen leaderboard. **Only**
+  `admin_token` reaches this; there is no `vote_token` variant, so a voter's
+  link structurally cannot see results. `ranking` comes back **empty** when
+  nobody voted — that is the correct answer, not an error.
 
 > There is deliberately **no** endpoint that returns an individual ballot.
 
@@ -72,16 +78,22 @@ stand in for identity.
   with a strict tie-break cascade (points → placement counts → head-to-head →
   join-order fallback) and nudges displayed point totals so no two candidates
   ever show the same number either.
+- **No votes ⇒ no leaderboard** — with zero ballots the scorer returns an empty
+  ranking and the UI says "no votes were cast". It must never fall through to
+  the tie-break/spacing logic, which would otherwise crown whoever happens to
+  be first on the roster with points nobody awarded.
 - **Duplicate votes** — the `unique(poll_id, member_id)` insert is the guard,
   so two simultaneous submits for the same picked name can't both slip through.
 - **Self-exclusion** — the server builds the candidate list without the picked
   name; the client never receives its own row to filter out.
 - **Voting window** — checked against the server clock at write time, never
   the client's countdown.
-- **Auto-close** — closes the instant EITHER the timer runs out
-  ([`app/scheduler.py`](app/scheduler.py) sweeps every 15s so this holds even
-  with nobody on the site) OR everyone on the roster has voted (checked inline
-  on every submit, so it's instant rather than waiting for the next sweep).
+- **Auto-close** — closes the instant ANY of these happens:
+  - everyone on the roster has voted — checked inline on every submit, so it is
+    instant and does **not** wait for the timer or the next sweep;
+  - the timer runs out — [`app/scheduler.py`](app/scheduler.py) sweeps every 5s
+    so this holds even with nobody on the site;
+  - the creator ends it early via `POST /api/admin/{admin_token}/close`.
 
 ## Project layout
 
