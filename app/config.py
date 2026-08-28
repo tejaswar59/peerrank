@@ -16,11 +16,14 @@ class Settings(BaseSettings):
     db_startup_retries: int = 5
     db_startup_retry_delay: float = 3.0
 
-    # How often the auto-close sweep runs (seconds) — closes any poll whose
-    # timer has run out even if nobody has the page open. Must stay <=
-    # min_duration_seconds, otherwise the shortest allowed poll could sit
-    # "open" past its own deadline until the next sweep.
-    sweep_interval_seconds: int = 5
+    # Auto-close sweep. The loop does NOT tick on a fixed interval: it sleeps
+    # until the next poll is actually due to close, and falls back to
+    # sweep_idle_interval_seconds when nothing is open at all. That keeps a
+    # metered/serverless Postgres from being woken thousands of times a day for
+    # no reason. Closing is also handled inline on any visitor request and on the
+    # final vote, so this loop is only the nobody-is-watching backstop.
+    sweep_interval_seconds: int = 5  # retained for compatibility; see scheduler
+    sweep_idle_interval_seconds: int = 300
 
     # Voting-window bounds (seconds). The creator picks any value in this range;
     # anything outside it is rejected server-side too, never just in the UI.
