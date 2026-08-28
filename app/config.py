@@ -8,6 +8,14 @@ class Settings(BaseSettings):
 
     app_name: str = "Peer Rank"
 
+    # Postgres only. How long a single connection attempt may take, and how long
+    # startup keeps retrying before giving up — a managed database is often still
+    # waking up when the app container starts, and crash-looping on that wastes
+    # far more time than waiting a few seconds.
+    db_connect_timeout: int = 10
+    db_startup_retries: int = 5
+    db_startup_retry_delay: float = 3.0
+
     # How often the auto-close sweep runs (seconds) — closes any poll whose
     # timer has run out even if nobody has the page open. Must stay <=
     # min_duration_seconds, otherwise the shortest allowed poll could sit

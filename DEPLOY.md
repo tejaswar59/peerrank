@@ -46,6 +46,49 @@ docker run -p 8000:8000 \
 
 Open `http://localhost:8000/`.
 
+## Troubleshooting: `Cannot assign requested address` on startup
+
+```
+psycopg.OperationalError: connection to server at "2406:da18:...", port 5432
+failed: Cannot assign requested address
+```
+
+**This is not a credentials, firewall, or wrong-hostname problem, and the
+connection string is almost certainly fine.** Managed Postgres hosts (Neon and
+others on AWS) are **dual-stack** — they publish both A and AAAA records:
+
+```bash
+getent hosts <db-host>          # shows both families
+getent ahostsv4 <db-host>       # IPv4 only — usually NOT empty
+```
+
+glibc's `getaddrinfo` follows RFC 6724, which ranks IPv6 above IPv4, so the
+resolver hands back the AAAA addresses first. A container with no IPv6 route
+tries one, cannot assign a source address, and fails — while working IPv4
+addresses sat right there in the same DNS answer.
+
+**The fix is in the image**, not the URL — `Dockerfile` raises the precedence of
+IPv4-mapped addresses so IPv4 is attempted first:
+
+```
+precedence ::ffff:0:0/96  100
+```
+
+IPv6 still works wherever it is genuinely available; this only changes the
+ordering. If you ever hit this on a rebuilt image, confirm that line is still in
+`/etc/gai.conf`, then check whether the host has stopped publishing A records
+at all (`getent ahostsv4` genuinely empty) — only then does the hostname need
+changing.
+
+*Not recommended:* pinning `?hostaddr=<ipv4>` in the URL. Provider IPs rotate,
+and on providers that route by TLS SNI (Neon does) it is easy to get subtly
+wrong.
+
+The app also retries the first connection (`DB_STARTUP_RETRIES`, default 5) and,
+on giving up, logs one diagnostic line naming the likely cause instead of a
+60-frame SQLAlchemy traceback. The log line includes host, port and database
+name but never the password.
+
 ## Database: SQLite vs Postgres
 
 - **SQLite (default)** — zero setup, one file. Fine for a single instance / small

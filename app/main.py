@@ -1,6 +1,7 @@
 """FastAPI entrypoint. Creates tables on startup, runs the auto-close sweep,
 and mounts the single polls router. No accounts, no auth middleware at all."""
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,17 +11,74 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .database import Base, engine
+from .database import Base, describe_db_target, engine
 from .routers import polls
 from .scheduler import sweep_loop
 
+log = logging.getLogger("peerrank.startup")
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+
+def _diagnose_db_failure(exc: Exception) -> str:
+    """Turn a connection failure into one line someone can act on.
+
+    The default SQLAlchemy traceback is ~60 frames of pool internals with the
+    actual cause buried at the bottom, which makes a deploy failure far harder
+    to read than it needs to be.
+    """
+    text = str(exc)
+
+    if "Cannot assign requested address" in text:
+        return (
+            "The database host resolved to an IPv6 address but this container has "
+            "no IPv6 route. The hostname is usually fine — it just publishes both "
+            "A and AAAA records, and the resolver returned IPv6 first. The image "
+            "sets IPv4 precedence in /etc/gai.conf to avoid this; if you see this "
+            "on a rebuilt image, confirm that line survived, or check whether the "
+            "host now publishes ONLY AAAA records."
+        )
+    if "could not translate host name" in text or "Name or service not known" in text:
+        return "The database hostname in DATABASE_URL could not be resolved. Check it for typos."
+    if "password authentication failed" in text:
+        return "The database rejected the credentials in DATABASE_URL."
+    if "Connection refused" in text:
+        return "Nothing is listening on that database host/port. Check the port and that the database is running."
+    if "timeout expired" in text or "timed out" in text:
+        return (
+            "The database did not answer in time — usually a firewall or "
+            "IP-allowlist blocking this container, or the database is asleep."
+        )
+    if "does not exist" in text and "database" in text:
+        return "That database name does not exist on the server."
+    return "Could not connect to the database. The provider's error is above."
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Dev convenience: create tables if missing. (Use Alembic for real migrations.)
-    Base.metadata.create_all(bind=engine)
+    # Retried because a managed database is frequently still accepting its first
+    # connections when the app container starts.
+    attempts = max(1, settings.db_startup_retries)
+    for attempt in range(1, attempts + 1):
+        try:
+            await asyncio.to_thread(Base.metadata.create_all, engine)
+            break
+        except Exception as exc:  # noqa: BLE001 — we re-raise after reporting
+            if attempt < attempts:
+                log.warning(
+                    "database not ready (attempt %d/%d) — retrying in %.0fs",
+                    attempt,
+                    attempts,
+                    settings.db_startup_retry_delay,
+                )
+                await asyncio.sleep(settings.db_startup_retry_delay)
+                continue
+            log.error("=" * 72)
+            log.error("STARTUP FAILED — could not reach %s", describe_db_target())
+            log.error("%s", _diagnose_db_failure(exc))
+            log.error("=" * 72)
+            raise
 
     stop = asyncio.Event()
     task = asyncio.create_task(sweep_loop(stop))
