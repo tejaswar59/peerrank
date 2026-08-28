@@ -370,6 +370,14 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
   const isClosed = status?.status === "closed";
 
   useEffect(() => {
+    // Stop once the poll is closed. Nothing about a closed poll can change
+    // again, so continuing to poll is pure waste — and it was NOT harmless:
+    // the interval had no exit condition, so a tab left open on a finished
+    // poll kept hitting /status (and therefore the database) every 3 seconds
+    // indefinitely, which on a metered/serverless Postgres never lets the
+    // compute idle.
+    if (isClosed) return;
+
     let alive = true;
     async function poll_() {
       try {
@@ -385,7 +393,7 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
       alive = false;
       clearInterval(t);
     };
-  }, [poll.vote_token]);
+  }, [poll.vote_token, isClosed]);
 
   useEffect(() => {
     if (status?.status !== "closed" || results) return;
