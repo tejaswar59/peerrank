@@ -9,18 +9,28 @@ class Settings(BaseSettings):
     app_name: str = "Peer Rank"
 
     # How often the auto-close sweep runs (seconds) — closes any poll whose
-    # timer has run out even if nobody has the page open.
-    sweep_interval_seconds: int = 15
+    # timer has run out even if nobody has the page open. Must stay <=
+    # min_duration_seconds, otherwise the shortest allowed poll could sit
+    # "open" past its own deadline until the next sweep.
+    sweep_interval_seconds: int = 5
 
-    # Duration options offered when creating a poll (minutes). The creator
-    # picks one; anything outside this range is rejected server-side too.
-    min_duration_minutes: int = 1
-    max_duration_minutes: int = 24 * 60  # 1 day
+    # Voting-window bounds (seconds). The creator picks any value in this range;
+    # anything outside it is rejected server-side too, never just in the UI.
+    # The 5s floor exists so a full create -> vote -> close -> results cycle can
+    # be exercised end to end in one sitting.
+    min_duration_seconds: int = 5
+    max_duration_seconds: int = 24 * 60 * 60  # 1 day
 
-    # Rate limit for ballot submission (per client IP, fixed window) — the
-    # one endpoint worth throttling since it's write-heavy and has no login
-    # to rely on for abuse control.
-    submit_rate_max: int = 10
+    # Rate limit for ballot submission (per client IP, fixed window).
+    #
+    # Sized for the normal case, which is a whole team voting at once from ONE
+    # shared public IP (an office NAT, or a mobile carrier gateway). A roster can
+    # hold up to MAX_MEMBERS (100) people, so a limit of 10/minute would have
+    # started rejecting real voters as soon as the 11th person in an office
+    # submitted. This is abuse protection only — the actual duplicate-vote guard
+    # is the unique(poll_id, member_id) constraint in the database, which no rate
+    # limit is needed to enforce.
+    submit_rate_max: int = 150
     submit_rate_window: int = 60
 
     # Rate limit for poll creation (per client IP) — prevents link-spam.

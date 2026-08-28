@@ -53,7 +53,12 @@ export default function GlassCard({
           : undefined
       }
       className={[
-        "group glass gradient-border relative rounded-xl3",
+        // NAMED group (`group/card`), not a bare `group`. Tailwind compiles
+        // `group-hover:` to a descendant selector, so a bare `group` here would
+        // fire every unnamed group-hover ANYWHERE inside the card the moment
+        // the pointer touched the card — e.g. all rows lighting up their hover
+        // state at once, not just the one under the cursor.
+        "group/card glass gradient-border relative rounded-xl3",
         onClick ? "cursor-pointer" : "",
         className,
       ].join(" ")}
@@ -61,7 +66,7 @@ export default function GlassCard({
       {glow && !reduce ? (
         <motion.div
           aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover/card:opacity-100"
           style={{
             background: useTransform(
               [glowX, glowY],
@@ -71,7 +76,16 @@ export default function GlassCard({
           }}
         />
       ) : null}
-      <div className="relative z-[2] [transform:translateZ(40px)]">{children}</div>
+      {/* The translateZ lift only means anything when the card is actually
+          tilting in 3D. Applying it unconditionally put every card's content
+          inside a 3D-transformed containing block, which breaks drag-and-drop:
+          Framer Motion measures children with getBoundingClientRect() and then
+          moves them with transforms, and those two disagree once an ancestor
+          has a Z translation — so a dragged row never lands where the pointer
+          is and reorder thresholds never trigger. */}
+      <div className={`relative z-[2] ${tilt && !reduce ? "[transform:translateZ(40px)]" : ""}`}>
+        {children}
+      </div>
     </motion.div>
   );
 }

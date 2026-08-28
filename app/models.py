@@ -72,7 +72,9 @@ class Poll(Base):
     # Private — the creator's own secret. Never returned by any endpoint
     # other than the create response.
     admin_token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
-    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Seconds, not minutes: the creator sets the window freely and short
+    # windows are allowed, so minutes is too coarse a unit to store.
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     closes_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     # "open" | "closed"
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
@@ -83,8 +85,8 @@ class Poll(Base):
     )
 
     @staticmethod
-    def compute_closes_at(duration_minutes: int, now: datetime | None = None) -> datetime:
-        return (now or utcnow()) + timedelta(minutes=duration_minutes)
+    def compute_closes_at(duration_seconds: int, now: datetime | None = None) -> datetime:
+        return (now or utcnow()) + timedelta(seconds=duration_seconds)
 
 
 class Candidate(Base):

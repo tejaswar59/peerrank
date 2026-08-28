@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Reorder, motion, AnimatePresence } from "framer-motion";
+import { Reorder, motion } from "framer-motion";
 import {
   GripVertical,
   Trophy,
@@ -10,6 +10,9 @@ import {
   ArrowUp,
   ArrowLeft,
   ShieldCheck,
+  ChevronUp,
+  ChevronDown,
+  ArrowRight,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { BallotPage, Candidate, PollStatus } from "@/lib/types";
@@ -159,6 +162,19 @@ export default function Vote() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase.k, token]);
 
+  // Swap a row with its neighbour. Same state shape as onReorder, so the
+  // buttons and dragging are interchangeable rather than two code paths.
+  function move(index: number, delta: -1 | 1) {
+    setPhase((prev) => {
+      if (prev.k !== "ballot") return prev;
+      const target = index + delta;
+      if (target < 0 || target >= prev.order.length) return prev;
+      const order = [...prev.order];
+      [order[index], order[target]] = [order[target], order[index]];
+      return { ...prev, order };
+    });
+  }
+
   async function pick(memberId: number) {
     try {
       const page = await api<BallotPage>(`/polls/${token}/candidates/${memberId}`);
@@ -200,38 +216,57 @@ export default function Vote() {
     }
   }
 
+  // NO AnimatePresence here. This is a state machine, not a list: exactly one
+  // phase may ever be mounted. Wrapping it in AnimatePresence left every
+  // previous phase in the DOM waiting on an exit animation that never
+  // completed, so "Loading…", "Select your name" and the ballot all stacked up
+  // — the page grew to twice its height, the ballot ended up pushed below the
+  // fold at opacity 0, and stale rows showed through above the card. Each phase
+  // animates itself in on mount; nothing needs to animate out.
   return (
     <Shell>
-      <AnimatePresence>
-        {phase.k === "loading" ? (
-          <motion.div key="l" exit={{ opacity: 0 }}>
-            <OrbLoader label="Loading…" />
-          </motion.div>
-        ) : phase.k === "notfound" ? (
-          <Notice
-            key="nf"
-            icon={<LinkIcon className="h-8 w-8" />}
-            tone="bg-white/8 text-white/60"
-            title="Voting link not found"
-            message="This poll doesn't exist or has been removed. Check the link and try again."
-            action={<Button variant="glass" onClick={() => navigate("/")}>Go home</Button>}
-          />
-        ) : phase.k === "select" ? (
-          <SelectNameView key="sel" status={phase.status} onPick={pick} />
-        ) : phase.k === "locked" ? (
-          <LockedView key="lk" memberName={phase.memberName} closesAt={phase.closesAt} />
-        ) : phase.k === "closed" ? (
-          <ClosedView key="cl" pollName={phase.pollName} />
-        ) : (
-          <motion.div key="ballot" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+      {phase.k === "loading" ? (
+        <OrbLoader label="Loading…" />
+      ) : phase.k === "notfound" ? (
+        <Notice
+          icon={<LinkIcon className="h-8 w-8" />}
+          tone="bg-white/8 text-white/60"
+          title="Voting link not found"
+          message="This poll doesn't exist or has been removed. Check the link and try again."
+          action={<Button variant="glass" onClick={() => navigate("/")}>Go home</Button>}
+        />
+      ) : phase.k === "select" ? (
+        <SelectNameView status={phase.status} onPick={pick} />
+      ) : phase.k === "locked" ? (
+        <LockedView memberName={phase.memberName} closesAt={phase.closesAt} />
+      ) : phase.k === "closed" ? (
+        <ClosedView pollName={phase.pollName} />
+      ) : (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
             <div className="mb-6 text-center">
-              <p className="text-[13px] font-medium uppercase tracking-wider text-cyan-glow/80">
-                Voting as {phase.page.member_name}
-              </p>
-              <h1 className="mt-1.5 text-3xl">{phase.page.poll_name}</h1>
+              {/* Same step language as the name-picking screen, so it's clear
+                  this is the part where the vote actually happens. */}
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-cyan-glow/25 bg-cyan-glow/10 px-3 py-1 text-[11.5px] font-semibold uppercase tracking-wider text-cyan-100">
+                <span className="truncate">Step 2 of 2 · Voting as {phase.page.member_name}</span>
+              </span>
+              <h1 className="wrap-anywhere mt-1.5 text-3xl leading-tight">{phase.page.poll_name}</h1>
               <p className="mt-2 text-[14px] text-white/50">
-                Drag to rank the rest of the group, best first · <Countdown end={phase.page.closes_at} />
+                Drag or use the arrows to rank, best first · <Countdown end={phase.page.closes_at} />
               </p>
+              {/* Escape hatch for picking the wrong name. Safe to offer: opening
+                  a ballot is a read-only step — nothing is recorded until
+                  Submit — so nobody is locked into a name by mistake. */}
+              {/* Needs its own opaque surface: as bare low-opacity text it sat
+                  directly over the animated 3D background and the moving shapes
+                  read straight through it, so the control was easy to miss. */}
+              <button
+                type="button"
+                onClick={() => load()}
+                className="ring-focus mt-3.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/15 bg-ink-950/75 px-3.5 py-1.5 text-[12.5px] font-medium text-white/75 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.8)] backdrop-blur-md transition hover:border-cyan-glow/45 hover:bg-ink-950/90 hover:text-cyan-100"
+              >
+                <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Not {phase.page.member_name}? Pick a different name</span>
+              </button>
             </div>
 
             <GlassCard tilt={false} className="p-4 sm:p-5">
@@ -252,7 +287,7 @@ export default function Vote() {
                       key={c.id}
                       value={c}
                       whileDrag={{ scale: 1.03, zIndex: 10 }}
-                      className="group flex cursor-grab items-center gap-3 rounded-xl2 border border-white/8 bg-white/[0.03] px-3 py-2.5 active:cursor-grabbing"
+                      className="group/row flex cursor-grab items-center gap-3 rounded-xl2 border border-white/8 bg-white/[0.03] px-3 py-2.5 active:cursor-grabbing"
                     >
                       <span
                         className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[14px] font-bold tabnums ${
@@ -270,7 +305,32 @@ export default function Vote() {
                       <span className="shrink-0 rounded-full border border-cyan-glow/25 bg-cyan-glow/10 px-2.5 py-1 text-[12px] font-semibold tabnums text-cyan-100">
                         +{points} pt{points === 1 ? "" : "s"}
                       </span>
-                      <GripVertical className="h-5 w-5 shrink-0 text-white/25 transition group-hover:text-white/50" />
+                      {/* Dragging is the nice path, not the only one: these give
+                          a reliable way to reorder on any device and make the
+                          ballot usable by keyboard, which drag alone never is. */}
+                      <div className="flex shrink-0 flex-col">
+                        <button
+                          type="button"
+                          aria-label={`Move ${c.display_name} up`}
+                          disabled={i === 0}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => move(i, -1)}
+                          className="ring-focus rounded text-white/35 transition hover:text-cyan-glow disabled:pointer-events-none disabled:opacity-20"
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${c.display_name} down`}
+                          disabled={i === phase.order.length - 1}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => move(i, 1)}
+                          className="ring-focus rounded text-white/35 transition hover:text-cyan-glow disabled:pointer-events-none disabled:opacity-20"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <GripVertical className="h-5 w-5 shrink-0 text-white/25 transition group-hover/row:text-white/50" />
                     </Reorder.Item>
                   );
                 })}
@@ -290,9 +350,8 @@ export default function Vote() {
               leaderboard. Your ranking itself stays anonymous; nobody, including the poll's creator, can see who
               ranked what.
             </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </motion.div>
+      )}
     </Shell>
   );
 }
@@ -300,11 +359,22 @@ export default function Vote() {
 function SelectNameView({ status, onPick }: { status: PollStatus; onPick: (id: number) => void }) {
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="mb-6 text-center">
-        <p className="text-[13px] font-medium uppercase tracking-wider text-cyan-glow/80">Select your name</p>
-        <h1 className="mt-1.5 text-3xl">{status.name}</h1>
-        <p className="mt-2 text-[14px] text-white/50">
-          {status.voted_count} / {status.total_members} voted · closes in <Countdown end={status.closes_at} phrase={false} />
+      {/* The question used to be the hero here, with "select your name" as a
+          small label above it. That reads as "here is the question, pick your
+          answer" — so someone opening the link for the first time taps the
+          person they want to vote for. The instruction is the hero now, and the
+          question is demoted to context, because on THIS screen the only task
+          is identifying yourself. */}
+      <div className="mb-5 text-center">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-glow/25 bg-cyan-glow/10 px-3 py-1 text-[11.5px] font-semibold uppercase tracking-wider text-cyan-100">
+          Step 1 of 2
+        </span>
+        <h1 className="mt-3 text-[26px] font-semibold leading-tight sm:text-[28px]">Which one is you?</h1>
+        <p className="mx-auto mt-2 max-w-[40ch] text-[14px] leading-relaxed text-white/55">
+          Tap your own name below. You're not voting yet — you'll rank everyone else on the next screen.
+        </p>
+        <p className="wrap-anywhere mx-auto mt-3 max-w-[42ch] text-[12.5px] text-white/35">
+          Ranking for: <span className="font-medium text-white/60">{status.name}</span>
         </p>
       </div>
       <GlassCard tilt={false} className="p-3 sm:p-4">
@@ -315,25 +385,36 @@ function SelectNameView({ status, onPick }: { status: PollStatus; onPick: (id: n
               type="button"
               disabled={m.voted}
               onClick={() => onPick(m.id)}
-              className={`ring-focus flex items-center gap-3 rounded-xl2 border px-4 py-3 text-left transition ${
+              className={`ring-focus group/row flex items-center gap-3 rounded-xl2 border px-4 py-3 text-left transition ${
                 m.voted
                   ? "cursor-not-allowed border-white/5 bg-white/[0.015] opacity-50"
                   : "border-white/8 bg-white/[0.03] hover:border-cyan-glow/40 hover:bg-white/[0.05]"
               }`}
             >
               <Avatar name={m.display_name} size={38} />
-              <span className="flex-1 text-[15px] font-medium text-white/90">{m.display_name}</span>
+              <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-white/90" title={m.display_name}>
+                {m.display_name}
+              </span>
               {m.voted ? (
                 <span className="flex items-center gap-1.5 text-[12px] font-medium text-white/35">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Voted
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Already voted
                 </span>
-              ) : null}
+              ) : (
+                // Spells out what tapping a row means, so the list can't be
+                // mistaken for a ballot.
+                <span className="hidden shrink-0 items-center gap-1 text-[12px] font-medium text-cyan-glow/90 sm:flex sm:opacity-0 sm:transition-opacity sm:group-hover/row:opacity-100">
+                  This is me <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              )}
             </button>
           ))}
         </div>
       </GlassCard>
+      {/* Turnout + countdown live here rather than under the heading, so they
+          can't compete with the instruction for attention. */}
       <p className="mt-4 text-center text-[12px] text-white/35">
-        Pick your own name — you'll then rank everyone else on the list.
+        {status.voted_count} of {status.total_members} voted · closes in{" "}
+        <Countdown end={status.closes_at} phrase={false} />
       </p>
     </motion.div>
   );
@@ -356,7 +437,7 @@ function LockedView({ memberName, closesAt }: { memberName: string; closesAt: st
         <CheckCircle2 className="h-10 w-10" />
       </motion.div>
       <h2 className="text-2xl">Ballot locked in</h2>
-      <p className="mx-auto mt-2 max-w-sm text-[14.5px] leading-relaxed text-white/55">
+      <p className="wrap-anywhere mx-auto mt-2 max-w-sm text-[14.5px] leading-relaxed text-white/55">
         Thanks, <b className="text-white/80">{memberName}</b>. Your vote is anonymous and can't be changed.
       </p>
       <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-[13px] text-white/60">
@@ -375,7 +456,7 @@ function ClosedView({ pollName }: { pollName: string }) {
         <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-white/[0.06] text-white/50">
           <ShieldCheck className="h-8 w-8" />
         </div>
-        <h1 className="text-2xl">{pollName}</h1>
+        <h1 className="wrap-anywhere text-2xl leading-tight">{pollName}</h1>
         <p className="mx-auto mt-2 max-w-sm text-[14.5px] leading-relaxed text-white/55">
           Voting has closed. Thanks for taking part — results go only to whoever created this poll.
         </p>

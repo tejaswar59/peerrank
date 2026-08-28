@@ -19,7 +19,7 @@ export interface Poll {
   // vote_token structurally cannot.
   admin_token: string;
   status: string; // "open" | "closed"
-  duration_minutes: number;
+  duration_seconds: number;
   closes_at: string;
   created_at: string;
   members: Member[];
@@ -67,5 +67,9 @@ export interface ResultRow {
 export interface ResultOut {
   poll_name: string;
   computed_at: string;
+  // EMPTY when nobody voted. Never render an empty ranking as a leaderboard —
+  // there is no winner to show. See app/scoring.py's zero-ballot guard.
   ranking: ResultRow[];
+  ballot_count: number;
+  total_members: number;
 }

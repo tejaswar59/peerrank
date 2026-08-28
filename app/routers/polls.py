@@ -25,7 +25,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import utcnow
 from ..ratelimit import rate_limit
-from ..results import close_poll
+from ..results import ballot_count, close_poll
 from ..schemas import (
     BallotPageOut,
     CandidateOut,
@@ -91,6 +91,26 @@ def _voted_ids(db: Session, poll_id: int) -> set[int]:
     )
 
 
+def _results_for(db: Session, poll: models.Poll) -> ResultOut:
+    """Build the frozen leaderboard payload for an already-closed poll. Shared
+    by the results route and the manual-close route so both return byte-for-byte
+    the same thing."""
+    snapshot = db.scalar(
+        select(models.ResultSnapshot).where(models.ResultSnapshot.poll_id == poll.id)
+    )
+    if snapshot is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Results not computed yet")
+    # ranked_output is [] when nobody voted. That's a real answer, not an
+    # error — the client shows a "no votes" state for it.
+    return ResultOut(
+        poll_name=poll.name,
+        computed_at=snapshot.computed_at,
+        ranking=snapshot.ranked_output,
+        ballot_count=ballot_count(db, poll.id),
+        total_members=len(_roster(db, poll.id)),
+    )
+
+
 def _maybe_close_if_expired(db: Session, poll: models.Poll) -> None:
     """A visitor can land on an already-expired-but-not-yet-swept poll between
     background sweeps; close it right away instead of making them wait."""
@@ -107,11 +127,11 @@ def _maybe_close_if_expired(db: Session, poll: models.Poll) -> None:
 )
 def create_poll(body: PollIn, db: Session = Depends(get_db)):
     name = body.name.strip()
-    if not (settings.min_duration_minutes <= body.duration_minutes <= settings.max_duration_minutes):
+    if not (settings.min_duration_seconds <= body.duration_seconds <= settings.max_duration_seconds):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Timer must be between {settings.min_duration_minutes} and "
-            f"{settings.max_duration_minutes} minutes.",
+            f"Voting window must be between {settings.min_duration_seconds} seconds "
+            f"and {settings.max_duration_seconds // 3600} hours.",
         )
 
     # De-dupe up front (case/whitespace-insensitive) so the minimum applies to
@@ -139,8 +159,8 @@ def create_poll(body: PollIn, db: Session = Depends(get_db)):
         name=name,
         vote_token=_make_token(db, models.Poll.vote_token),
         admin_token=_make_token(db, models.Poll.admin_token),
-        duration_minutes=body.duration_minutes,
-        closes_at=models.Poll.compute_closes_at(body.duration_minutes, now),
+        duration_seconds=body.duration_seconds,
+        closes_at=models.Poll.compute_closes_at(body.duration_seconds, now),
         status="open",
         created_at=now,
     )
@@ -210,7 +230,12 @@ def submit_ballot(token: str, body: VoteIn, db: Session = Depends(get_db)):
     poll = _get_poll(db, token)
     _maybe_close_if_expired(db, poll)
     if poll.status != "open":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Voting is not open")
+        # Reachable mid-ballot now that the creator can end voting early, so
+        # say what happened rather than just refusing.
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Voting has closed for this poll, so this ranking wasn't counted.",
+        )
 
     roster = _roster(db, poll.id)
     roster_ids = {m.id for m in roster}
@@ -255,6 +280,23 @@ def submit_ballot(token: str, body: VoteIn, db: Session = Depends(get_db)):
     return {"status": "submitted"}
 
 
+# ---------------- admin-only: close early ----------------
+@router.post("/admin/{admin_token}/close", response_model=ResultOut)
+def close_poll_now(admin_token: str, db: Session = Depends(get_db)):
+    """End voting immediately, before the timer runs out.
+
+    admin_token ONLY — a voter holding the shared link must never be able to
+    cut voting short for everyone else, so this deliberately has no vote_token
+    variant, exactly like the results route below.
+
+    Idempotent: closing an already-closed poll just returns the frozen result,
+    so a double-click or a retry can't change an announced leaderboard."""
+    poll = _get_poll_by_admin_token(db, admin_token)
+    if poll.status == "open":
+        close_poll(db, poll)
+    return _results_for(db, poll)
+
+
 # ---------------- admin-only: results ----------------
 # Deliberately NOT under /polls/{vote_token}/... — a voter's link can never
 # reach this. See app/models.py's Poll docstring for why admin_token exists.
@@ -267,11 +309,4 @@ def poll_results(admin_token: str, db: Session = Depends(get_db)):
     _maybe_close_if_expired(db, poll)
     if poll.status != "closed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Results available after the poll closes")
-    snapshot = db.scalar(
-        select(models.ResultSnapshot).where(models.ResultSnapshot.poll_id == poll.id)
-    )
-    if snapshot is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Results not computed yet")
-    return ResultOut(
-        poll_name=poll.name, computed_at=snapshot.computed_at, ranking=snapshot.ranked_output
-    )
+    return _results_for(db, poll)
