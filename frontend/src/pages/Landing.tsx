@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, X, Radio, Copy, Check, Clock, Sparkles, Trophy, Inbox, Info, Lock } from "lucide-react";
+import {
+  Plus, X, Radio, Copy, Check, Clock, Sparkles, Trophy, Inbox, Info, Lock, History, Hourglass,
+} from "lucide-react";
 import { Wordmark } from "@/components/Brand";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -10,11 +12,16 @@ import { Countdown } from "@/components/ui/Countdown";
 import { Leaderboard } from "@/components/Leaderboard";
 import { api, ApiError } from "@/lib/api";
 import type { Poll, PollStatus, ResultOut } from "@/lib/types";
-import { voteLink } from "@/lib/format";
+import { countdownText, parseUTC, voteLink } from "@/lib/format";
+import * as mypolls from "@/lib/mypolls";
 import { COUNTER_SHOWS_AT, MAX_MEMBERS, MAX_MEMBER_NAME_LEN, MAX_QUESTION_LEN } from "@/lib/limits";
 import { toast } from "@/components/Toast";
 
 const MIN_MEMBERS = 3;
+// Mirrors app/config.py's results_retention_seconds. Only used for wording —
+// the real deadline always comes from the server as ResultOut.expires_at, so a
+// drift here can never make the UI outlive the data.
+const RESULTS_TTL_SECONDS = 30 * 60;
 // Seconds. Mirrors app/config.py's min/max_duration_seconds.
 const MIN_DURATION = 5;
 const MAX_DURATION = 24 * 60 * 60;
@@ -357,12 +364,50 @@ function CreateForm({ onCreated }: { onCreated: (poll: Poll) => void }) {
   );
 }
 
+/**
+ * Live "this disappears in …" line under a finished result.
+ *
+ * Shown so the deletion is expected rather than discovered: the creator has a
+ * visible window in which to screenshot or share the leaderboard. Ticks every
+ * second, and reads the deadline from the server (`expires_at`) rather than
+ * computing it locally, so it can never promise time the backend won't honour.
+ */
+function ExpiryNote({ expiresAt }: { expiresAt: string | null }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!expiresAt) return;
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+
+  if (!expiresAt) return null; // retention switched off server-side
+  const left = countdownText(expiresAt);
+
+  return (
+    <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11.5px] leading-relaxed text-white/35">
+      <Hourglass className="h-3 w-3 shrink-0" />
+      {left === "closed" ? (
+        <span>Deleting now…</span>
+      ) : (
+        <span>
+          Disappears in <span className="tabnums font-medium text-white/50">{left}</span> — save anything you want
+          to keep.
+        </span>
+      )}
+    </p>
+  );
+}
+
 function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
   const [status, setStatus] = useState<PollStatus | null>(null);
   const [results, setResults] = useState<ResultOut | null>(null);
   const [copied, setCopied] = useState(false);
   const [closing, setClosing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  // Results are kept for a limited time and then deleted server-side. `gone` is
+  // set when the API says 410, or when the client-side clock reaches
+  // results.expires_at — whichever happens first.
+  const [gone, setGone] = useState(false);
   const link = voteLink(poll.vote_token);
   // Keyed on "closed", not "open": before the first status arrives `status` is
   // null, and a freshly created poll is open — treating unknown as open keeps
@@ -376,15 +421,17 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
     // poll kept hitting /status (and therefore the database) every 3 seconds
     // indefinitely, which on a metered/serverless Postgres never lets the
     // compute idle.
-    if (isClosed) return;
+    if (isClosed || gone) return;
 
     let alive = true;
     async function poll_() {
       try {
         const s = await api<PollStatus>(`/polls/${poll.vote_token}/status`);
         if (alive) setStatus(s);
-      } catch {
-        /* transient — try again next tick */
+      } catch (e) {
+        // 410 means the retention window elapsed and the poll was deleted.
+        // Anything else is transient — try again on the next tick.
+        if (alive && e instanceof ApiError && e.status === 410) setGone(true);
       }
     }
     poll_();
@@ -393,15 +440,43 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
       alive = false;
       clearInterval(t);
     };
-  }, [poll.vote_token, isClosed]);
+  }, [poll.vote_token, isClosed, gone]);
 
   useEffect(() => {
-    if (status?.status !== "closed" || results) return;
+    if (status?.status !== "closed" || results || gone) return;
     // admin_token, never vote_token — this is the one thing that can see results.
-    api<ResultOut>(`/admin/${poll.admin_token}/results`)
+    // Sent as a header so the secret never appears in a URL (and therefore
+    // never in an access log or a Referer).
+    api<ResultOut>("/admin/results", { headers: { "X-Admin-Token": poll.admin_token } })
       .then(setResults)
-      .catch(() => {});
-  }, [status?.status, results, poll.admin_token]);
+      .catch((e) => {
+        // Without this the card sat on "Computing…" forever once the poll had
+        // been purged, which reads as a hang rather than as an expiry.
+        if (e instanceof ApiError && (e.status === 410 || e.status === 404)) setGone(true);
+      });
+  }, [status?.status, results, gone, poll.admin_token]);
+
+  // Flip to the expired state the moment the deadline passes, without waiting
+  // for a request to fail. Nothing is left on screen that the server would no
+  // longer hand out.
+  useEffect(() => {
+    if (!results?.expires_at || gone) return;
+    const end = parseUTC(results.expires_at);
+    if (!end) return;
+    const ms = end.getTime() - Date.now();
+    if (ms <= 0) {
+      setGone(true);
+      return;
+    }
+    const t = setTimeout(() => setGone(true), ms);
+    return () => clearTimeout(t);
+  }, [results?.expires_at, gone]);
+
+  // Once it is deleted server-side, the stored admin token is dead weight —
+  // and on a shared computer it is dead weight that identifies a past poll.
+  useEffect(() => {
+    if (gone) mypolls.forget(poll.vote_token);
+  }, [gone, poll.vote_token]);
 
   async function copy() {
     try {
@@ -419,7 +494,10 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
   async function closeNow() {
     setClosing(true);
     try {
-      const res = await api<ResultOut>(`/admin/${poll.admin_token}/close`, { method: "POST" });
+      const res = await api<ResultOut>("/admin/close", {
+        method: "POST",
+        headers: { "X-Admin-Token": poll.admin_token },
+      });
       setResults(res);
       setStatus((s) => (s ? { ...s, status: "closed", seconds_remaining: 0 } : s));
       setConfirmClose(false);
@@ -432,6 +510,28 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
   }
 
   const pct = status && status.total_members ? Math.round((status.voted_count / status.total_members) * 100) : 0;
+
+  // Expired: the poll and every ballot under it are gone from the server, so
+  // there is nothing to render but the explanation. Deliberately says the data
+  // was deleted rather than "not found" — a link that simply stopped working
+  // looks like a bug, whereas this was the promise.
+  if (gone) {
+    return (
+      <GlassCard tilt={false} className="p-7 text-center">
+        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-white/[0.05] text-white/40">
+          <Hourglass className="h-7 w-7" />
+        </div>
+        <p className="text-[15px] font-medium text-white/80">These results have expired</p>
+        <p className="mx-auto mt-1.5 max-w-[36ch] text-[13px] leading-relaxed text-white/45">
+          Results stay up for {humanDuration(RESULTS_TTL_SECONDS)} after a poll closes, then the poll and every
+          ranking in it are deleted for good. Nothing about this one is stored any more.
+        </p>
+        <Button variant="glass" block className="mt-6" onClick={onReset}>
+          ← Start a different poll
+        </Button>
+      </GlassCard>
+    );
+  }
 
   return (
     <GlassCard tilt={false} className="p-7">
@@ -511,6 +611,7 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
                 Voting closed before anyone submitted a ranking, so there's no result to show. Start a new poll to
                 try again.
               </p>
+              <ExpiryNote expiresAt={results.expires_at} />
             </div>
           ) : results ? (
             <>
@@ -519,6 +620,7 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
                 <Trophy className="h-3.5 w-3.5 text-[#f5d580]/70" />
                 Final result · {results.ballot_count} of {results.total_members} voted
               </p>
+              <ExpiryNote expiresAt={results.expires_at} />
             </>
           ) : (
             <p className="text-center text-[13px] text-white/40">Computing…</p>
@@ -574,8 +676,65 @@ function LiveView({ poll, onReset }: { poll: Poll; onReset: () => void }) {
   );
 }
 
+/**
+ * Polls this browser created. Without this, the only way back to a poll's
+ * results was the admin token held in memory — so closing the tab threw away
+ * the leaderboard for good.
+ */
+function RecentPolls({ onOpen }: { onOpen: (p: Poll) => void }) {
+  const [rows, setRows] = useState(() => mypolls.list());
+  if (rows.length === 0) return null;
+
+  function forget(token: string) {
+    mypolls.forget(token);
+    setRows(mypolls.list());
+  }
+
+  return (
+    <div className="mt-5">
+      <p className="mb-2 pl-1 text-[12.5px] text-white/45">
+        Polls you created on this device — open one to see its results.
+      </p>
+      <div className="flex flex-col gap-2">
+        {rows.map(({ poll: p }) => (
+          <div
+            key={p.vote_token}
+            className="flex items-center gap-2 rounded-xl2 border border-white/8 bg-white/[0.02] px-3 py-2"
+          >
+            <History className="h-4 w-4 shrink-0 text-white/30" />
+            <button
+              type="button"
+              onClick={() => onOpen(p)}
+              className="ring-focus min-w-0 flex-1 truncate rounded text-left text-[13.5px] text-white/80 transition hover:text-cyan-glow"
+              title={p.name}
+            >
+              {p.name}
+            </button>
+            <button
+              type="button"
+              onClick={() => forget(p.vote_token)}
+              aria-label={`Forget ${p.name}`}
+              className="ring-focus shrink-0 rounded p-1 text-white/25 transition hover:text-rose-400"
+              title="Forget this poll on this device"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 pl-1 text-[11.5px] leading-relaxed text-white/30">
+        Stored only in this browser. On a shared computer, use ✕ to forget a poll
+        once you're done with it.
+      </p>
+    </div>
+  );
+}
+
 export default function Landing() {
-  const [poll, setPoll] = useState<Poll | null>(null);
+  // Restored from localStorage on the FIRST render, not in an effect: an effect
+  // would flash the empty creation form for a frame and look like the poll had
+  // been lost — which is the exact anxiety this fix exists to remove.
+  const [poll, setPoll] = useState<Poll | null>(() => mypolls.mostRecent());
 
   return (
     <div className="relative z-[2] mx-auto flex min-h-screen max-w-[520px] flex-col px-5 py-12">
@@ -598,7 +757,21 @@ export default function Landing() {
       </Reveal>
 
       <div className="mt-8">
-        {poll ? <LiveView poll={poll} onReset={() => setPoll(null)} /> : <CreateForm onCreated={setPoll} />}
+        {poll ? (
+          <LiveView poll={poll} onReset={() => setPoll(null)} />
+        ) : (
+          <>
+            <CreateForm
+              onCreated={(p) => {
+                // Remember it BEFORE showing the live view, so even an
+                // immediate crash or refresh cannot lose the admin token.
+                mypolls.remember(p);
+                setPoll(p);
+              }}
+            />
+            <RecentPolls onOpen={setPoll} />
+          </>
+        )}
       </div>
 
       <p className="mt-6 text-center text-[11.5px] leading-relaxed text-white/30">

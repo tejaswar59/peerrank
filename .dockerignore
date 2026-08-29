@@ -12,6 +12,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Tests and QA automation never belong in a production image, even if a suite
+# is added back to the repo later.
+tests/
+pytest.ini
+run_full_qa.*
+qa-results.json
+
 # Node / frontend build tooling. The built output in web/ is what ships;
 # nothing under frontend/ is needed to build the image.
 node_modules/

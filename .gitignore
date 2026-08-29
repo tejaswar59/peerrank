@@ -22,3 +22,4 @@ frontend/dist/
 frontend/.vite/
 *.local
 npm-debug.log*
+tests/

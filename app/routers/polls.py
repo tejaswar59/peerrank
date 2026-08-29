@@ -15,7 +15,7 @@ that data path does not exist (see app/models.py's anonymity-wall docstring).
 """
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,8 +24,9 @@ from .. import models
 from ..config import settings
 from ..database import get_db
 from ..models import utcnow
-from ..ratelimit import rate_limit
+from ..ratelimit import enforce_lookup_budget, note_lookup_miss, rate_limit
 from ..results import ballot_count, close_poll
+from ..retention import expires_at, purge_poll
 from ..schemas import (
     BallotPageOut,
     CandidateOut,
@@ -56,20 +57,71 @@ def _make_token(db: Session, column) -> str:
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not allocate a link")
 
 
-def _get_poll(db: Session, token: str) -> models.Poll:
+def _purge_if_expired(db: Session, poll: models.Poll) -> None:
+    """Delete a poll whose results have outlived their retention window, and
+    answer 410 Gone.
+
+    The background sweep already wakes exactly when a poll is due to expire, so
+    this almost never fires — but "almost never" is not the same as never: the
+    process may have been restarted, or the sweep may be mid-sleep on a
+    different deadline. Checking on read means the guarantee holds on the
+    request path itself rather than depending on a timer having run.
+
+    410 rather than 404 because the caller is holding a token that WAS real.
+    Telling them the results expired is the honest answer and lets the UI say so
+    instead of implying a broken link. It leaks nothing: only someone who
+    already had a valid token can ever see it.
+    """
+    if poll.status != "closed":
+        return
+    computed_at = db.scalar(
+        select(models.ResultSnapshot.computed_at).where(
+            models.ResultSnapshot.poll_id == poll.id
+        )
+    )
+    deadline = expires_at(computed_at or poll.closes_at)
+    if deadline is None or deadline > utcnow():
+        return
+    purge_poll(db, poll.id)
+    db.commit()
+    raise HTTPException(
+        status.HTTP_410_GONE,
+        "These results have expired and were permanently deleted.",
+    )
+
+
+def _get_poll(db: Session, token: str, request: Request) -> models.Poll:
     """Look up by the PUBLIC vote_token. Never accepts admin_token — keeping
     these two lookups structurally separate is what makes admin_token an
-    actual access boundary rather than a UI convention."""
+    actual access boundary rather than a UI convention.
+
+    Misses are metered so the 6-character token space cannot be searched at
+    full speed. The budget is enforced BEFORE the lookup, so a client that is
+    already over it gets 429 whether or not the token happens to be real —
+    otherwise the status code itself would leak the answer.
+    """
+    enforce_lookup_budget(request)
     poll = db.scalar(select(models.Poll).where(models.Poll.vote_token == token))
     if poll is None:
+        note_lookup_miss(request)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "That link doesn't match a poll")
+    _purge_if_expired(db, poll)
     return poll
 
 
-def _get_poll_by_admin_token(db: Session, admin_token: str) -> models.Poll:
+def _get_poll_by_admin_token(db: Session, admin_token: str, request: Request) -> models.Poll:
+    enforce_lookup_budget(request)
+    if not admin_token:
+        note_lookup_miss(request)
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "This action needs the creator's admin token (X-Admin-Token header).",
+        )
     poll = db.scalar(select(models.Poll).where(models.Poll.admin_token == admin_token))
     if poll is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "That admin link doesn't match a poll")
+        note_lookup_miss(request)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That admin token doesn't match a poll")
+    _purge_if_expired(db, poll)
     return poll
 
 
@@ -108,6 +160,7 @@ def _results_for(db: Session, poll: models.Poll) -> ResultOut:
         ranking=snapshot.ranked_output,
         ballot_count=ballot_count(db, poll.id),
         total_members=len(_roster(db, poll.id)),
+        expires_at=expires_at(snapshot.computed_at),
     )
 
 
@@ -175,9 +228,9 @@ def create_poll(body: PollIn, db: Session = Depends(get_db)):
 
 # ---------------- the link: status / select-name / rank / submit / results ----------------
 @router.get("/polls/{token}/status", response_model=PollStatusOut)
-def poll_status(token: str, db: Session = Depends(get_db)):
+def poll_status(token: str, request: Request, db: Session = Depends(get_db)):
     """Powers both the "select your name" screen and the creator's live count."""
-    poll = _get_poll(db, token)
+    poll = _get_poll(db, token, request)
     _maybe_close_if_expired(db, poll)
     roster = _roster(db, poll.id)
     voted = _voted_ids(db, poll.id)
@@ -197,11 +250,13 @@ def poll_status(token: str, db: Session = Depends(get_db)):
 
 
 @router.get("/polls/{token}/candidates/{member_id}", response_model=BallotPageOut)
-def candidates_for(token: str, member_id: int, db: Session = Depends(get_db)):
+def candidates_for(
+    token: str, member_id: int, request: Request, db: Session = Depends(get_db)
+):
     """After picking a name, the ranking screen for THAT name — everyone else,
     self excluded. Rejects a name that's already voted so the same identity
     can't be reused to peek at the form twice."""
-    poll = _get_poll(db, token)
+    poll = _get_poll(db, token, request)
     _maybe_close_if_expired(db, poll)
     roster = _roster(db, poll.id)
     me = next((m for m in roster if m.id == member_id), None)
@@ -226,8 +281,10 @@ def candidates_for(token: str, member_id: int, db: Session = Depends(get_db)):
     status_code=201,
     dependencies=[Depends(rate_limit(settings.submit_rate_max, settings.submit_rate_window, bucket="submit"))],
 )
-def submit_ballot(token: str, body: VoteIn, db: Session = Depends(get_db)):
-    poll = _get_poll(db, token)
+def submit_ballot(
+    token: str, body: VoteIn, request: Request, db: Session = Depends(get_db)
+):
+    poll = _get_poll(db, token, request)
     _maybe_close_if_expired(db, poll)
     if poll.status != "open":
         # Reachable mid-ballot now that the creator can end voting early, so
@@ -280,32 +337,54 @@ def submit_ballot(token: str, body: VoteIn, db: Session = Depends(get_db)):
     return {"status": "submitted"}
 
 
-# ---------------- admin-only: close early ----------------
-@router.post("/admin/{admin_token}/close", response_model=ResultOut)
-def close_poll_now(admin_token: str, db: Session = Depends(get_db)):
+# ---------------- admin-only routes ----------------
+#
+# The admin token travels in the X-Admin-Token HEADER, never in the URL.
+#
+# It used to be a path segment (/api/admin/{admin_token}/results). That put the
+# one secret guarding a poll's results into every access log, every proxy log
+# and any Referer header — so anyone who could read logs could read results.
+# A header is not logged by default, which closes that off.
+#
+# Deliberately NOT under /polls/{vote_token}/... either: a voter's link can
+# never reach these. See app/models.py's Poll docstring for why admin_token
+# exists at all.
+
+# `alias` is what makes the header name explicit; FastAPI would otherwise look
+# for "x-admin-token" derived from the parameter name, which is the same here
+# but fragile if the parameter is ever renamed.
+AdminToken = Header(default="", alias="X-Admin-Token")
+
+
+@router.post("/admin/close", response_model=ResultOut)
+def close_poll_now(
+    request: Request,
+    db: Session = Depends(get_db),
+    x_admin_token: str = AdminToken,
+):
     """End voting immediately, before the timer runs out.
 
     admin_token ONLY — a voter holding the shared link must never be able to
-    cut voting short for everyone else, so this deliberately has no vote_token
-    variant, exactly like the results route below.
+    cut voting short for everyone else.
 
     Idempotent: closing an already-closed poll just returns the frozen result,
     so a double-click or a retry can't change an announced leaderboard."""
-    poll = _get_poll_by_admin_token(db, admin_token)
+    poll = _get_poll_by_admin_token(db, x_admin_token, request)
     if poll.status == "open":
         close_poll(db, poll)
     return _results_for(db, poll)
 
 
-# ---------------- admin-only: results ----------------
-# Deliberately NOT under /polls/{vote_token}/... — a voter's link can never
-# reach this. See app/models.py's Poll docstring for why admin_token exists.
-@router.get("/admin/{admin_token}/results", response_model=ResultOut)
-def poll_results(admin_token: str, db: Session = Depends(get_db)):
+@router.get("/admin/results", response_model=ResultOut)
+def poll_results(
+    request: Request,
+    db: Session = Depends(get_db),
+    x_admin_token: str = AdminToken,
+):
     """The creator's leaderboard — available once the poll has closed, either
     by the timer or by everyone having voted. Nobody who only has the voter
     link can reach this endpoint; there is no vote_token variant of it."""
-    poll = _get_poll_by_admin_token(db, admin_token)
+    poll = _get_poll_by_admin_token(db, x_admin_token, request)
     _maybe_close_if_expired(db, poll)
     if poll.status != "closed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Results available after the poll closes")

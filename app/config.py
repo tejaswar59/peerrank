@@ -48,6 +48,24 @@ class Settings(BaseSettings):
     create_rate_max: int = 20
     create_rate_window: int = 300
 
+    # Failed token lookups per client IP. A vote/admin token is 6 characters
+    # from a 33-symbol alphabet, and /status needs no credential, so without
+    # this an attacker can search the keyspace at full network speed looking for
+    # live polls. Only MISSES are counted, so ordinary polling — which always
+    # hits — is completely unaffected no matter how many people share one IP.
+    lookup_miss_max: int = 30
+    lookup_miss_window: int = 60
+
+    # How long a closed poll's frozen leaderboard stays readable, measured from
+    # the moment it was computed. Once this elapses the poll and everything
+    # under it (roster, participation log, ballots, snapshot) is deleted
+    # permanently — results are meant to be seen, discussed and then gone, not
+    # to sit in a database indefinitely.
+    #
+    # This is real deletion, not hiding: after it runs there is nothing left to
+    # recover, which is the point. Set to 0 to keep results forever.
+    results_retention_seconds: int = 30 * 60
+
     # Allowed browser origins for the API. "*" (default) is fine for local dev;
     # in production set to your real frontend origin(s), comma-separated, e.g.
     # CORS_ORIGINS="https://peerrank.arcitech.ai". Because the SPA is served from
