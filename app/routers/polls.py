@@ -46,12 +46,27 @@ def _norm(name: str) -> str:
     return " ".join(name.split()).lower()
 
 
-def _make_token(db: Session, column) -> str:
-    """Short 6-char slug, unique against the given Poll column (vote_token or
-    admin_token — both draw from the same alphabet/length, so one helper)."""
-    alphabet = "abcdefghijkmnopqrstuvwxyz23456789"  # no 0/O, 1/l/I — easy to type
+# The share link is a plain 5-digit number: shortest to read aloud, retype or
+# dictate over a call, and unambiguous — with only digits there is no O/0 or
+# l/1 confusion to design around.
+VOTE_TOKEN_ALPHABET = "0123456789"
+
+# admin_token keeps letters AND digits. It is never read or typed by a human —
+# the creator's browser holds it and sends it in a header — so the readability
+# argument above simply does not apply to it, while the keyspace argument does.
+# Letters+digits at 6 characters is ~1.3 billion; digits at 5 would be 100,000.
+ADMIN_TOKEN_ALPHABET = "abcdefghijkmnopqrstuvwxyz23456789"  # no 0/O, 1/l/I
+
+
+def _make_token(db: Session, column, length: int, alphabet: str) -> str:
+    """Short slug, unique against the given Poll column.
+
+    Alphabet and length are parameters, not constants, because vote_token and
+    admin_token are deliberately built differently — see the two notes above and
+    the sizing note in app/config.py.
+    """
     for _ in range(30):
-        token = "".join(secrets.choice(alphabet) for _ in range(6))
+        token = "".join(secrets.choice(alphabet) for _ in range(length))
         if not db.scalar(select(models.Poll.id).where(column == token)):
             return token
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not allocate a link")
@@ -210,8 +225,12 @@ def create_poll(body: PollIn, db: Session = Depends(get_db)):
     now = utcnow()
     poll = models.Poll(
         name=name,
-        vote_token=_make_token(db, models.Poll.vote_token),
-        admin_token=_make_token(db, models.Poll.admin_token),
+        vote_token=_make_token(
+            db, models.Poll.vote_token, settings.vote_token_length, VOTE_TOKEN_ALPHABET
+        ),
+        admin_token=_make_token(
+            db, models.Poll.admin_token, settings.admin_token_length, ADMIN_TOKEN_ALPHABET
+        ),
         duration_seconds=body.duration_seconds,
         closes_at=models.Poll.compute_closes_at(body.duration_seconds, now),
         status="open",

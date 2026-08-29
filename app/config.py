@@ -48,6 +48,26 @@ class Settings(BaseSettings):
     create_rate_max: int = 20
     create_rate_window: int = 300
 
+    # Token sizes. The alphabets live in app/routers/polls.py next to the
+    # generator; these are the lengths.
+    #
+    # They are deliberately NOT symmetric. vote_token is a 5-DIGIT number: it is
+    # read off a screen, retyped and dictated, so it is optimised for that.
+    # admin_token is letters+digits at 6 and never typed by anyone.
+    #
+    #   vote_token   10^5 = 100,000 combinations
+    #   admin_token  33^6 ~= 1.3 billion
+    #
+    # 100,000 is SMALL. It is only defensible because of three things together:
+    #   * lookup_miss_max below caps failed guesses per IP (30/min by default),
+    #   * a poll is only guessable while it is open — usually minutes,
+    #   * a vote_token hit exposes a roster of first names and the ability to
+    #     vote as a name that has not voted; it can never reach results.
+    # If polls ever get long windows, high volume, or anything more sensitive
+    # than first names, raise this back to 6 and use letters again.
+    vote_token_length: int = 5
+    admin_token_length: int = 6
+
     # Failed token lookups per client IP. A vote/admin token is 6 characters
     # from a 33-symbol alphabet, and /status needs no credential, so without
     # this an attacker can search the keyspace at full network speed looking for

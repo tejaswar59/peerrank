@@ -2,6 +2,7 @@
 and mounts the single polls router. No accounts, no auth middleware at all."""
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -40,6 +41,10 @@ def _setup_logging() -> None:
 _setup_logging()
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+# Deliberately wider than the current token length so links created by an older
+# build keep working after the length changes.
+_SAFE_TOKEN = re.compile(r"[a-z0-9]{1,32}")
 
 
 def _diagnose_db_failure(exc: Exception) -> str:
@@ -150,6 +155,24 @@ def favicon():
 @app.get("/api/health", tags=["meta"])
 def health():
     return {"status": "ok"}
+
+
+# Short share link: /r/<token> -> the hash-routed SPA at /app/#/r/<token>.
+#
+# The SPA route itself cannot be shortened without moving off HashRouter, but
+# the link people actually send each other can be: this is the whole reason the
+# route exists. "/app/#/r/kmmjgx" reads like debug output and gets mangled by
+# chat clients that stop linkifying at the "#".
+@app.get("/r/{token}", include_in_schema=False)
+def short_vote_link(token: str):
+    # Strict ASCII allowlist. Without this the path segment lands unescaped in a
+    # Location header, which is an open-redirect / header-injection shape — a
+    # redirect target must never be built from raw input. str.isalnum() is NOT
+    # enough here: it accepts Unicode letters and digits, so it would pass
+    # things that normalise into something else entirely.
+    if not _SAFE_TOKEN.fullmatch(token):
+        return RedirectResponse(url="/app/", status_code=302)
+    return RedirectResponse(url=f"/app/#/r/{token}", status_code=302)
 
 
 # Serve the SPA last so it never shadows the /api routes. html=True makes
