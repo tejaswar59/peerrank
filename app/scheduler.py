@@ -14,6 +14,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import utcnow
 from .results import compute_and_freeze
+from .retention import run_purge_once
 
 log = logging.getLogger("peerrank.sweep")
 
@@ -95,6 +96,15 @@ async def sweep_loop(stop: asyncio.Event) -> None:
         closed, next_due = await asyncio.to_thread(run_sweep_once)
         if closed:
             log.info("auto-closed %d poll(s)", closed)
+
+        # Expired results are deleted on the same loop. purge_due is folded into
+        # the same sleep calculation as next_due, so a poll whose results are
+        # about to expire wakes the loop just as reliably as one about to close —
+        # otherwise deletion would drift by up to the idle interval and the
+        # 30-minute promise would quietly become "30 to 35 minutes".
+        _, purge_due = await asyncio.to_thread(run_purge_once)
+        if purge_due is not None:
+            next_due = purge_due if next_due is None else min(next_due, purge_due)
 
         if next_due is None:
             delay: float = idle

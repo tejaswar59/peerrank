@@ -15,6 +15,11 @@ export interface ApiOpts {
   method?: string;
   body?: unknown;
   signal?: AbortSignal;
+  /**
+   * Extra request headers. Used for X-Admin-Token: the creator's secret travels
+   * in a header rather than the URL so it never lands in an access log.
+   */
+  headers?: Record<string, string>;
 }
 
 // A validation loc like ["body", "member_names", 2] names the 3rd entry of a
@@ -46,7 +51,7 @@ function extractError(data: any, status: number): string {
 export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T> {
   const res = await fetch("/api" + path, {
     method: opts.method || "GET",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
     body: opts.body != null ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
   });

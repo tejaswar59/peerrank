@@ -125,3 +125,7 @@ class ResultOut(BaseModel):
     # Turnout, so the creator can see what the ranking is actually based on.
     ballot_count: int
     total_members: int
+    # When this poll is deleted for good. Told to the client so the countdown is
+    # visible instead of the results just vanishing on the next refresh.
+    # None means retention is switched off and results are kept indefinitely.
+    expires_at: datetime | None = None

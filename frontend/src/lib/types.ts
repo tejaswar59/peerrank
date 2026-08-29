@@ -72,4 +72,7 @@ export interface ResultOut {
   ranking: ResultRow[];
   ballot_count: number;
   total_members: number;
+  // When this poll is permanently deleted. null = kept indefinitely
+  // (retention switched off server-side).
+  expires_at: string | null;
 }

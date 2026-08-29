@@ -120,7 +120,10 @@ export default function Vote() {
       setPhase({ k: "select", status });
     } catch (e) {
       const err = e as ApiError;
-      if (err.status === 404) setPhase({ k: "notfound" });
+      // 410 = the poll's retention window elapsed and it was deleted. For a
+      // voter that is the same experience as a dead link, and it needs no toast
+      // about "results" — they never had access to those anyway.
+      if (err.status === 404 || err.status === 410) setPhase({ k: "notfound" });
       else {
         toast(err.message || "Could not load this poll", "err");
         setPhase({ k: "notfound" });
