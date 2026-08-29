@@ -52,8 +52,11 @@ export function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+// The SHORT form, which is the one people share. The backend redirects
+// /r/<token> to the hash-routed SPA at /app/#/r/<token>, so the ugly internal
+// path never has to appear in a message.
 export function voteLink(token: string): string {
-  return location.origin + "/app/#/r/" + token;
+  return location.origin + "/r/" + token;
 }
 
 export function initials(name: string): string {
