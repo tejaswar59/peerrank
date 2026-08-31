@@ -9,7 +9,11 @@ venv/
 .DS_Store
 
 # local tooling + temp
-.claude/
+# Ignore local Claude settings, but SHARE the subagent definitions.
+# Must be .claude/* not .claude/ - git will not descend into an
+# excluded directory, so a negation under it can never re-include.
+.claude/*
+!.claude/agents/
 s.out
 s.err
 scratch_s.out
