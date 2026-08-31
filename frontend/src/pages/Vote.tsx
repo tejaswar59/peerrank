@@ -357,7 +357,8 @@ export default function Vote() {
               </Button>
             </div>
             <p className="mt-4 text-center text-[12px] text-[#AEAEB2]">
-              Your ranking stays anonymous — nobody can see who ranked what.
+              Your name is recorded with your ranking, and admins can see how you
+              ranked. Your teammates cannot.
             </p>
           </motion.div>
         )}
@@ -448,7 +449,7 @@ function LockedView({
 
       <h2 className="text-[34px] font-bold text-[#1D1D1F]">Your ranking is in.</h2>
       <p className="mx-auto mt-2 max-w-sm text-[17px] leading-relaxed text-[#6E6E73]">
-        Thanks, <strong className="text-[#1D1D1F]">{memberName}</strong>. Your vote is anonymous and can't be changed.
+        Thanks, <strong className="text-[#1D1D1F]">{memberName}</strong>. Your ranking is recorded and can't be changed.
       </p>
 
       <div className="my-6 h-px bg-[#D2D2D7]" />
