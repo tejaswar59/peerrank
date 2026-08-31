@@ -34,3 +34,4 @@ npm-debug.log*
 hive/
 roster.json
 roster-backups/
+.neon
