@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ArrowUp,
   ShieldCheck,
+  Eye,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import type { BallotPage, Candidate, PollStatus } from "@/lib/types";
@@ -224,7 +225,10 @@ export default function Vote() {
       const err = e as ApiError;
       toast(err.message || "Could not submit", "err");
       setSubmitting(false);
-      if (err.status === 409) load();
+      // 409 = already voted, 403 = poll closed while they were ranking. Both
+      // mean the ballot is moot; reload so they land on the real state instead
+      // of re-clicking Submit into the same error.
+      if (err.status === 409 || err.status === 403) load();
     }
   }
 
@@ -318,7 +322,7 @@ export default function Vote() {
                       className="group flex cursor-grab items-center gap-3 px-4 py-3.5 first:rounded-t-2xl last:rounded-b-2xl hover:bg-[#F5F5F7] active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071E3]"
                       tabIndex={0}
                       aria-label={`${c.display_name}, rank ${i + 1}. Use arrow keys to move.`}
-                      onKeyDown={(e) => {
+                      onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
                         if (e.key === "ArrowUp") { e.preventDefault(); moveItem(-1); }
                         if (e.key === "ArrowDown") { e.preventDefault(); moveItem(1); }
                       }}
@@ -342,12 +346,28 @@ export default function Vote() {
               </Reorder.Group>
             </div>
 
-            <div className="mt-5 flex items-center justify-between gap-4">
-              <p className="flex items-center gap-1.5 text-[13px] text-[#AEAEB2]">
-                <ArrowUp className="h-3.5 w-3.5" /> Top = most valued = most points
+            {/* Disclosure sits ABOVE the submit button on purpose: this app is
+                not anonymous, and the voter has to be told before they commit. */}
+            <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-[#D2D2D7] bg-[#F5F5F7] px-4 py-3">
+              <Eye className="mt-px h-4 w-4 shrink-0 text-[#6E6E73]" aria-hidden />
+              <p className="text-[13px] leading-[1.45] text-[#6E6E73]">
+                <strong className="font-semibold text-[#1D1D1F]">Not anonymous.</strong> Your
+                name is saved with your ranking, and this poll's admins can see exactly how you
+                ranked each person. Other people on the roster cannot.
+              </p>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-center gap-1.5 text-[13px] text-[#6E6E73]">
+                <ArrowUp className="h-3.5 w-3.5 shrink-0" />
+                {hasReordered
+                  ? "Top = most valued = most points"
+                  : "Move at least one person to enable Submit"}
               </p>
               <Button
                 size="lg"
+                block
+                className="sm:w-auto"
                 loading={submitting}
                 disabled={!hasReordered}
                 onClick={submit}
@@ -356,10 +376,6 @@ export default function Vote() {
                 Submit ranking
               </Button>
             </div>
-            <p className="mt-4 text-center text-[12px] text-[#AEAEB2]">
-              Your name is recorded with your ranking, and admins can see how you
-              ranked. Your teammates cannot.
-            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -460,10 +476,10 @@ function LockedView({
         aria-live="polite"
         aria-atomic="true"
       >
-        <Countdown end={closesAt} phrase={false} onEnd={load} />
+        <Countdown end={closesAt} phrase={false} />
       </div>
       <p className="mt-2 text-[14px] text-[#AEAEB2]">
-        Results go only to whoever created this poll.
+        This poll's admins see the leaderboard, and can see your individual ranking.
       </p>
 
       {status && (

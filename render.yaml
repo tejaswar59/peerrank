@@ -9,6 +9,9 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
+      # Pin the interpreter so deploys are reproducible and match the Dockerfile.
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: SECRET_KEY
         generateValue: true          # Render generates a strong secret
       - key: DATABASE_URL
@@ -21,8 +24,13 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # REQUIRED. Must exactly equal the origin Google redirects back to, i.e.
+      # <APP_BASE_URL>/auth/google/callback must be an Authorized redirect URI
+      # on the OAuth client. Set this to the real Render URL after the first
+      # deploy (https://<service>.onrender.com) - or to the custom domain, but
+      # only once that domain is actually attached and serving.
       - key: APP_BASE_URL
-        value: "https://peerrank.arcitech.ai"
+        sync: false
       - key: HTTPS_ONLY
         value: "true"
 

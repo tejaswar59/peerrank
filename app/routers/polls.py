@@ -25,7 +25,7 @@ from ..auth import get_current_user, require_admin
 from ..config import settings
 from ..database import get_db
 from ..models import utcnow
-from ..ratelimit import rate_limit
+from ..ratelimit import rate_limit_by_user
 from ..results import close_poll
 from ..schemas import (
     BallotPageOut,
@@ -207,7 +207,7 @@ def my_polls(db: Session = Depends(get_db), admin: dict = Depends(require_admin)
     "/polls",
     response_model=PollOut,
     status_code=201,
-    dependencies=[Depends(rate_limit(settings.create_rate_max, settings.create_rate_window, bucket="create"))],
+    dependencies=[Depends(rate_limit_by_user(settings.create_rate_max, settings.create_rate_window, bucket="create"))],
 )
 def create_poll(body: PollIn, db: Session = Depends(get_db), admin: dict = Depends(require_admin)):
     members = [{"name": m.name, "email": m.email} for m in body.members]
@@ -218,14 +218,20 @@ def create_poll(body: PollIn, db: Session = Depends(get_db), admin: dict = Depen
 @router.get("/polls/{token}/status", response_model=PollStatusOut)
 def poll_status(token: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
     """Powers both the "select your name" screen and the creator's live count.
-    Identity-bound: only someone whose signed-in email is on the roster can
-    view the poll at all."""
+    Identity-bound: only someone on the roster - or the poll's creator/an admin,
+    who may not be on it - can view the poll at all. Off-roster viewers get
+    my_member_id=None and so are never offered a ballot."""
     poll = _get_poll(db, token)
     _maybe_close_if_expired(db, poll)
     roster = _roster(db, poll.id)
     me = next((m for m in roster if m.email.lower() == user["email"].lower()), None)
     if me is None:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not on this poll's roster")
+        # An admin running a poll for a team they aren't part of is not on the
+        # roster, but still needs the live view. They get status with
+        # my_member_id=None, so there is no ballot form and nothing to vote with.
+        creator = (poll.created_by_email or "").lower() == user["email"].lower()
+        if not (creator or user.get("is_admin")):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not on this poll's roster")
     voted = _voted_ids(db, poll.id)
     remaining = max(0, int((poll.closes_at - utcnow()).total_seconds())) if poll.status == "open" else 0
     return PollStatusOut(
@@ -235,7 +241,7 @@ def poll_status(token: str, db: Session = Depends(get_db), user: dict = Depends(
         seconds_remaining=remaining,
         total_members=len(roster),
         voted_count=len(voted),
-        my_member_id=me.id,
+        my_member_id=me.id if me else None,
         members=[
             RosterMemberStatus(id=m.id, display_name=m.display_name, voted=m.id in voted)
             for m in roster
@@ -274,7 +280,7 @@ def candidates_for(token: str, member_id: int, db: Session = Depends(get_db),
 @router.post(
     "/polls/{token}/vote",
     status_code=201,
-    dependencies=[Depends(rate_limit(settings.submit_rate_max, settings.submit_rate_window, bucket="submit"))],
+    dependencies=[Depends(rate_limit_by_user(settings.submit_rate_max, settings.submit_rate_window, bucket="submit"))],
 )
 def submit_ballot(token: str, body: VoteIn, db: Session = Depends(get_db),
                   user: dict = Depends(get_current_user)):
@@ -363,10 +369,15 @@ def _result_out(db: Session, poll: models.Poll) -> ResultOut:
 # Deliberately NOT under /polls/{vote_token}/... — a voter's link can never
 # reach this. See app/models.py's Poll docstring for why admin_token exists.
 @router.get("/admin/{admin_token}/results", response_model=ResultOut)
-def poll_results(admin_token: str, db: Session = Depends(get_db)):
+def poll_results(admin_token: str, db: Session = Depends(get_db),
+                 user: dict = Depends(get_current_user)):
     """The creator's leaderboard — available once the poll has closed, either
     by the timer or by everyone having voted. Nobody who only has the voter
-    link can reach this endpoint; there is no vote_token variant of it."""
+    link can reach this endpoint; there is no vote_token variant of it.
+
+    The admin_token stays the authorising secret, but a session is also required
+    so the token alone - 6 characters, and it travels in a URL - is not a bearer
+    credential for anyone who finds it in a referrer header or shared link."""
     poll = _get_poll_by_admin_token(db, admin_token)
     _maybe_close_if_expired(db, poll)
     return _result_out(db, poll)

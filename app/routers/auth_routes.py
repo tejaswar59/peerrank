@@ -24,12 +24,15 @@ async def google_login(request: Request):
 @router.get("/google/callback")
 async def google_callback(request: Request):
     redirect_uri = settings.app_base_url.rstrip("/") + "/auth/google/callback"
-    log.info("OAuth callback hit, redirect_uri=%s, query=%s", redirect_uri, dict(request.query_params))
+    # Log only the parameter NAMES - the callback query carries the OAuth
+    # authorization code, which must never reach a log stream.
+    log.info("OAuth callback hit, redirect_uri=%s, params=%s",
+             redirect_uri, sorted(request.query_params))
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as exc:
         log.error("OAuthError: %s", exc)
-        return RedirectResponse(url=f"/app/#/login?error=oauth_denied&detail={exc}", status_code=302)
+        return RedirectResponse(url="/app/#/login?error=oauth_denied", status_code=302)
 
     user_info = token.get("userinfo") or {}
     email = (user_info.get("email") or "").lower().strip()

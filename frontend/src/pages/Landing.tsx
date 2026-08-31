@@ -228,8 +228,9 @@ export default function Landing() {
           <MyPolls onDuplicated={setPoll} />
         )}
 
-        <p className="mt-8 text-center text-[12px] text-[#AEAEB2]">
-          Rankings are never stored with a name attached — only who voted, never what they voted, is ever recorded.
+        <p className="mt-8 text-center text-[12px] text-[#6E6E73]">
+          Not anonymous. Your ranking is recorded with your name, and this poll's admins can see
+          how you ranked each person. Other people on the roster cannot.
         </p>
       </main>
     </div>
