@@ -3,7 +3,8 @@ Pure leaderboard computation. NO database access in here on purpose — that is
 what makes the tie-break cascade unit-testable against fabricated ties.
 
 Point allocation: within one ballot of L ranked members, the member in position
-i (0-based, best first) earns (L - i) points. So rank 1 earns L, last earns 1.
+i (0-based, best first) earns (L - i) + 1 points. So rank 1 earns L + 1 and last
+earns 2 - see _points_for below; a ballot of 3 pays out 4/3/2.
 
 Ordering is a single deterministic sort key (never a pairwise comparator, which
 could be non-transitive and thus produce undefined order on a Condorcet cycle):

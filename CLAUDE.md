@@ -49,7 +49,15 @@ uses Neon Postgres via Render.
 There are **no migrations** - `main.py` calls `Base.metadata.create_all` on
 startup. That creates *missing tables* only; it will not alter an existing
 table. Against a database that already holds an older schema, new tables and
-columns are silently absent. There is also **no test suite**.
+columns are silently absent.
+
+There *is* a test suite (added at launch prep): `pytest tests` — 43 tests over
+the scoring tiebreak cascade, admin/auth boundaries, token separation, identity
+binding, and double-vote rejection. Install with `pip install -r
+requirements-dev.txt`. It authenticates by forging a correctly-signed session
+cookie rather than stubbing dependencies, so requests run through the real
+SessionMiddleware -> `get_current_user` -> `require_admin` path. It is not
+wired into CI.
 
 **Auth model**
 
