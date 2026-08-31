@@ -1,9 +1,17 @@
 """
 SQLAlchemy models for Peer Rank.
 
-No accounts, no login. One person creates a Poll (a name + a fixed roster +
-a countdown), shares its link, and anyone who opens the link identifies
-themselves by picking their own name from the roster — nothing more.
+An admin creates a Poll (a name + a fixed roster + a countdown) and shares its
+link. Voters sign in with Google, pick their own name from the roster, and rank
+their peers.
+
+READ THIS FIRST: VOTING IS NOT ANONYMOUS END-TO-END
+---------------------------------------------------
+`AdminVoteRecord` (below) deliberately stores voter_email alongside that
+person's exact ranking, and an admin endpoint exposes it. The `Ballot` rules
+described next are still true and still enforced, but they no longer add up to
+a privacy promise you can make to voters. Do not tell voters their individual
+rankings are unseeable - they are visible to admins by design.
 
 THE ANONYMITY WALL (load-bearing invariant)
 --------------------------------------------
@@ -13,8 +21,9 @@ THE ANONYMITY WALL (load-bearing invariant)
   * Ballot            -> knows a ranking happened.  NO member_id / voter column, EVER.
 
 Nothing in the schema can join one to the other. This is a structural fact, not
-an access rule a bug could bypass: even the poll's creator cannot de-anonymize a
-vote because the linking information was never stored anywhere.
+an access rule a bug could bypass: the linking information is never stored in
+`ballots` at all. (Identity still reaches admins through the separate
+`AdminVoteRecord` table - see the warning at the top of this module.)
 
 `Ballot` is hardened against the two ways stored data could still leak the link:
   * NO sequential id and NO rowid (random UUID PK + WITHOUT ROWID) — so the
@@ -77,6 +86,9 @@ class Poll(Base):
     # "open" | "closed"
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Email of the admin who created this poll. Nullable: polls created before
+    # this column existed have no creator on record.
+    created_by_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
     members: Mapped[list["Candidate"]] = relationship(
         back_populates="poll", cascade="all, delete-orphan", order_by="Candidate.id"
@@ -93,13 +105,20 @@ class Candidate(Base):
     select-your-name screen."""
 
     __tablename__ = "candidates"
-    __table_args__ = (UniqueConstraint("poll_id", "display_name", name="uq_poll_name"),)
+    __table_args__ = (
+        UniqueConstraint("poll_id", "email", name="uq_poll_email"),
+        UniqueConstraint("poll_id", "display_name", name="uq_poll_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     poll_id: Mapped[int] = mapped_column(
         ForeignKey("polls.id", ondelete="CASCADE"), index=True
     )
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Identity-binding: the only email allowed to vote as this roster slot.
+    # One email per poll (unique constraint below) — checked against the
+    # signed-in user's email at both the ranking-form and submit steps.
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
 
     poll: Mapped["Poll"] = relationship(back_populates="members")
 
@@ -146,6 +165,36 @@ class Ballot(Base):
         ForeignKey("polls.id", ondelete="CASCADE"), index=True
     )
     ranked_member_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+
+
+class AdminVoteRecord(Base):
+    """
+    Admin-only transparency layer. Records WHO voted and WHAT THEY VOTED,
+    explicitly for admin review.
+
+    This is intentionally NOT the Ballot table. The Ballot table remains
+    anonymous (no voter identity, no timestamp, no rowid). This table is the
+    separate, non-anonymous companion, written atomically alongside Ballot
+    in the same DB transaction.
+
+    There is NO FK from AdminVoteRecord to Ballot — the two tables share only
+    poll_id and ranked_member_ids content, not any row-level link. This is
+    deliberate: even with full DB access, you cannot trivially correlate a
+    specific AdminVoteRecord row to a specific Ballot row.
+
+    DO NOT add a ballot_id FK here — that would re-open de-anonymization.
+    """
+    __tablename__ = "admin_vote_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    poll_id: Mapped[int] = mapped_column(
+        ForeignKey("polls.id", ondelete="CASCADE"), index=True
+    )
+    voter_email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
+    voter_display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Same ordering as Ballot.ranked_member_ids: Candidate.id list, best first.
+    ranked_member_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+    voted_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class ResultSnapshot(Base):

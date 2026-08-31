@@ -39,6 +39,7 @@ export interface PollStatus {
   seconds_remaining: number;
   total_members: number;
   voted_count: number;
+  my_member_id: number | null;
   members: RosterMemberStatus[];
 }
 
@@ -67,5 +68,58 @@ export interface ResultRow {
 export interface ResultOut {
   poll_name: string;
   computed_at: string;
+  vote_count: number;
   ranking: ResultRow[];
+}
+
+export interface CurrentUser {
+  authenticated: true;
+  email: string;
+  name: string;
+  is_admin: boolean;
+}
+
+export interface RankedMember {
+  rank: number;
+  member_id: number;
+  name: string;
+}
+
+export interface AdminVoteRecord {
+  voter_email: string;
+  display_name: string;
+  ranked_members: RankedMember[];
+}
+
+export interface MemberInput {
+  name: string;
+  email: string;
+}
+
+export interface DuplicateIn {
+  name: string;
+  members: MemberInput[];
+  duration_minutes: number;
+}
+
+// GET /api/admin/polls — the admin dashboard's poll list.
+export interface PollSummary {
+  id: number;
+  name: string;
+  status: string;
+  created_at: string;
+  closes_at: string;
+  duration_minutes: number;
+  created_by_email: string | null;
+  total_members: number;
+  voted_count: number;
+  has_results: boolean;
+}
+
+// GET /api/admin/polls/{id} — enough to pre-fill the duplicate-poll form.
+export interface PollDetail {
+  id: number;
+  name: string;
+  status: string;
+  members: MemberInput[];
 }

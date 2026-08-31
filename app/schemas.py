@@ -1,14 +1,19 @@
 """Pydantic request/response models."""
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # ---------- create a poll ----------
+class MemberIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: EmailStr
+
+
 class PollIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    # Names one per entry, in the order typed; display order on the roster.
-    member_names: list[str] = Field(min_length=1)
+    # One entry per roster slot, in the order typed; display order on the roster.
+    members: list[MemberIn] = Field(min_length=1)
     duration_minutes: int = Field(gt=0)
 
 
@@ -16,6 +21,7 @@ class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     display_name: str
+    email: str
 
 
 class PollOut(BaseModel):
@@ -32,6 +38,7 @@ class PollOut(BaseModel):
     duration_minutes: int
     closes_at: datetime
     created_at: datetime
+    created_by_email: str | None = None
     members: list[MemberOut]
 
 
@@ -53,6 +60,7 @@ class PollStatusOut(BaseModel):
     seconds_remaining: int
     total_members: int
     voted_count: int
+    my_member_id: int | None
     members: list[RosterMemberStatus]
 
 
@@ -89,4 +97,56 @@ class ResultRow(BaseModel):
 class ResultOut(BaseModel):
     poll_name: str
     computed_at: datetime
+    vote_count: int = 0  # ballots cast; 0 means nobody voted (scores are tiebreak artifacts)
     ranking: list[ResultRow]
+
+
+# ---------- admin transparency ----------
+class RankedMemberOut(BaseModel):
+    rank: int
+    member_id: int
+    name: str
+
+
+class AdminVoteOut(BaseModel):
+    voter_email: str
+    display_name: str
+    ranked_members: list[RankedMemberOut]
+
+
+class DuplicateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    members: list[MemberIn] = Field(min_length=1)
+    duration_minutes: int = Field(gt=0)
+
+
+# ---------- admin dashboard ----------
+class PollSummaryOut(BaseModel):
+    """One row on the admin dashboard's poll list."""
+
+    id: int
+    name: str
+    status: str
+    created_at: datetime
+    closes_at: datetime
+    duration_minutes: int
+    created_by_email: str | None
+    total_members: int
+    voted_count: int
+    has_results: bool
+
+
+class MemberDetail(BaseModel):
+    """Roster member as returned by the detail endpoint — email is a plain str
+    here (not EmailStr) so legacy-placeholder emails don't fail validation."""
+    name: str
+    email: str
+
+
+class PollDetailOut(BaseModel):
+    """Just enough to pre-fill the duplicate-poll form: the roster."""
+
+    id: int
+    name: str
+    status: str
+    members: list[MemberDetail]

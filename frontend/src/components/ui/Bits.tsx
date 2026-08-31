@@ -5,47 +5,41 @@ import { initials, avatarGradient } from "@/lib/format";
 export function Spinner({ className = "h-5 w-5" }: { className?: string }) {
   return (
     <span
-      className={`inline-block animate-spin rounded-full border-2 border-white/15 border-t-cyan-glow ${className}`}
+      className={`inline-block animate-spin rounded-full border-2 border-[#D2D2D7] border-t-[#1D1D1F] ${className}`}
       role="status"
       aria-label="Loading"
     />
   );
 }
 
-// Liquid orbital loader for full-screen states.
+// Simple loading spinner for full-screen states.
 export function OrbLoader({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-5 py-20">
-      <div className="relative h-16 w-16">
-        <span className="absolute inset-0 rounded-full border border-cyan-glow/30" />
-        <span className="absolute inset-0 animate-pulse-ring rounded-full border border-cyan-glow/40" />
-        <span className="absolute inset-2 animate-spin rounded-full border-2 border-transparent border-t-teal-glow border-r-cyan-glow" />
-        <span className="absolute inset-[38%] rounded-full bg-cyan-glow/80 blur-[2px]" />
-      </div>
-      {label ? <p className="text-sm text-white/50">{label}</p> : null}
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#D2D2D7] border-t-[#1D1D1F]" />
+      {label ? <p className="text-[14px] text-[#6E6E73]">{label}</p> : null}
     </div>
   );
 }
 
 export function Skeleton({ className = "" }: { className?: string }) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-xl bg-white/[0.04] ${className}`}
-    >
-      <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+    <div className={`relative overflow-hidden rounded-xl bg-[#F5F5F7] ${className}`}>
+      <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-[#EBEBED] to-transparent" />
     </div>
   );
 }
 
 type BadgeTone = "open" | "closed" | "cyan" | "violet" | "gold" | "muted";
 const BADGE: Record<BadgeTone, string> = {
-  open: "bg-emerald-glow/15 text-emerald-300 border-emerald-glow/30",
-  closed: "bg-white/5 text-white/50 border-white/10",
-  cyan: "bg-cyan-glow/15 text-cyan-200 border-cyan-glow/30",
-  violet: "bg-violet-glow/15 text-violet-200 border-violet-glow/30",
-  gold: "bg-[#f5d580]/15 text-[#f5d580] border-[#f5d580]/30",
-  muted: "bg-white/5 text-white/45 border-white/10",
+  open: "bg-[#E8FAF0] text-[#1A7C3E] border-[#34C759]/30",
+  closed: "bg-[#F5F5F7] text-[#6E6E73] border-[#D2D2D7]",
+  cyan: "bg-[#E8F4FD] text-[#0071E3] border-[#0071E3]/30",
+  violet: "bg-[#F3EFFE] text-[#6B21A8] border-[#7C3AED]/30",
+  gold: "bg-[#FEF9EC] text-[#B45309] border-[#F5D580]/30",
+  muted: "bg-[#F5F5F7] text-[#6E6E73] border-[#D2D2D7]",
 };
+
 export function Badge({
   tone = "muted",
   children,
@@ -84,7 +78,7 @@ export function Avatar({
   return (
     <span className="relative inline-flex shrink-0">
       <span
-        className="grid place-items-center rounded-full font-semibold text-white/95 ring-1 ring-white/10"
+        className="grid place-items-center rounded-full font-semibold text-white ring-1 ring-[#D2D2D7]"
         style={{
           width: size,
           height: size,
@@ -95,14 +89,14 @@ export function Avatar({
         {initials(name)}
       </span>
       {presence ? (
-        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-ink-950 bg-emerald-glow" />
+        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-[#34C759]" />
       ) : null}
     </span>
   );
 }
 
 export function Divider({ className = "" }: { className?: string }) {
-  return <div className={`h-px w-full bg-white/[0.07] ${className}`} />;
+  return <div className={`h-px w-full bg-[#D2D2D7] ${className}`} />;
 }
 
 // Section reveal wrapper: fades + rises into view.

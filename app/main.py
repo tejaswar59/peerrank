@@ -1,5 +1,9 @@
 """FastAPI entrypoint. Creates tables on startup, runs the auto-close sweep,
-and mounts the single polls router. No accounts, no auth middleware at all."""
+mounts the auth/admin/polls routers, and serves the SPA.
+
+Auth IS present: Google OAuth plus a signed session cookie via Starlette's
+SessionMiddleware. Voting requires a signed-in user; creating a poll requires
+an address listed in ADMIN_EMAILS. See app/auth.py."""
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,10 +12,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
+from .auth import oauth  # noqa: F401 — triggers oauth.register() at import time
 from .config import settings
 from .database import Base, engine
 from .routers import polls
+from .routers import auth_routes
+from .routers import admin as admin_router
 from .scheduler import sweep_loop
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -42,7 +50,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# SessionMiddleware added after CORS so it runs outermost (Starlette middleware
+# stack is LIFO — last added = outermost = runs first on the way in).
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie="peerrank_session",
+    max_age=604800,
+    same_site="lax",
+    https_only=settings.https_only,
+)
 
+app.include_router(auth_routes.router)
+app.include_router(admin_router.router)
 app.include_router(polls.router)
 
 

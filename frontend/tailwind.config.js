@@ -16,10 +16,23 @@ export default {
         electric: "#3b82f6",
         violet: { glow: "#8b5cf6" },
         gold: "#f5d580",
+        apple: {
+          bg: "#FFFFFF",
+          subtle: "#F5F5F7",
+          hover: "#EBEBED",
+          border: "#D2D2D7",
+          primary: "#1D1D1F",
+          secondary: "#6E6E73",
+          tertiary: "#AEAEB2",
+          success: "#34C759",
+          warning: "#FF9F0A",
+          danger: "#FF3B30",
+          focus: "#0071E3",
+        },
       },
       fontFamily: {
         sans: ['"Inter"', "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
-        display: ['"Clash Display"', '"Inter"', "system-ui", "sans-serif"],
+        display: ['"Inter"', "system-ui", "sans-serif"],
         mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
@@ -30,6 +43,8 @@ export default {
         glass: "0 8px 40px -12px rgba(0,0,0,0.55), inset 0 1px 0 0 rgba(255,255,255,0.06)",
         glow: "0 0 0 1px rgba(20,184,166,0.25), 0 8px 40px -8px rgba(20,184,166,0.35)",
         "glow-lg": "0 0 60px -12px rgba(34,211,238,0.5)",
+        card: "0 1px 3px rgba(0,0,0,0.08)",
+        lift: "0 4px 16px rgba(0,0,0,0.10)",
       },
       keyframes: {
         floaty: {

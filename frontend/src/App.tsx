@@ -1,17 +1,20 @@
 import { Suspense, lazy, useEffect } from "react";
 import { HashRouter, Routes, Route, useLocation } from "react-router-dom";
 
-import AuroraBackground from "./components/AuroraBackground";
 import { ToastViewport } from "./components/Toast";
 import PageTransition from "./components/PageTransition";
 import { getReduceMotion } from "./lib/prefs";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 import Landing from "./pages/Landing";
+import Dashboard from "./pages/Dashboard";
 import Vote from "./pages/Vote";
 import NotFound from "./pages/NotFound";
+import Login from "./pages/Login";
 
-// 3D scene is heavy — load it lazily and skip it entirely when motion is reduced.
-const Scene = lazy(() => import("./three/Scene"));
+// Keep lazy import for Scene but don't render it — replaced by clean white bg
+const _Scene = lazy(() => import("./three/Scene"));
 
 function wrap(node: React.ReactNode) {
   return <PageTransition>{node}</PageTransition>;
@@ -28,14 +31,14 @@ function ScrollToTop() {
 
 function AnimatedRoutes() {
   const location = useLocation();
-  // Enter-only page transitions keyed by path: each route mounts fresh and plays
-  // its intro. (An AnimatePresence "wait" wrapper here can deadlock route swaps.)
   return (
     <div key={location.pathname}>
       <Routes location={location}>
-        <Route path="/" element={wrap(<Landing />)} />
+        <Route path="/login" element={wrap(<Login />)} />
+        <Route path="/" element={<ProtectedRoute>{wrap(<Landing />)}</ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute>{wrap(<Dashboard />)}</ProtectedRoute>} />
         {/* the shared link: select your name, rank, submit, see results */}
-        <Route path="/r/:token" element={wrap(<Vote />)} />
+        <Route path="/r/:token" element={<ProtectedRoute>{wrap(<Vote />)}</ProtectedRoute>} />
 
         <Route path="/404" element={wrap(<NotFound />)} />
         <Route path="*" element={wrap(<NotFound />)} />
@@ -45,20 +48,18 @@ function AnimatedRoutes() {
 }
 
 export default function App() {
-  const reduce = getReduceMotion();
+  const _reduce = getReduceMotion();
   return (
     <HashRouter>
-      <div className="noise relative min-h-screen">
-        <AuroraBackground />
-        {!reduce ? (
-          <Suspense fallback={null}>
-            <Scene />
-          </Suspense>
-        ) : null}
-        <ScrollToTop />
-        <AnimatedRoutes />
-        <ToastViewport />
-      </div>
+      <AuthProvider>
+        <div className="relative min-h-screen bg-white">
+          {/* Clean dot-grid background replacing Three.js scene + aurora */}
+          <div aria-hidden className="fixed inset-0 -z-10 dot-grid" />
+          <ScrollToTop />
+          <AnimatedRoutes />
+          <ToastViewport />
+        </div>
+      </AuthProvider>
     </HashRouter>
   );
 }

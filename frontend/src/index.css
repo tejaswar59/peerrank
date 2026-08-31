@@ -1,27 +1,31 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ==========================================================================
-   Peer Rank — design system
-   Dark, spatial, glass. Emerald→teal→cyan→electric→violet with gold accents.
+   Peer Rank — Apple HIG light design system
+   Clean white/light, Inter typography, minimal shadows.
    ========================================================================== */
 
 @layer base {
   :root {
-    --bg: #04060a;
-    --panel: 255 255 255; /* rgb, used with alpha */
-    --hair: 255 255 255;
-    --emerald: 16 185 129;
-    --teal: 20 184 166;
-    --cyan: 34 211 238;
-    --electric: 59 130 246;
-    --violet: 139 92 246;
-    --gold: 245 213 128;
-    --text: 233 238 245;
-    --muted: 148 163 184;
-    --faint: 100 116 139;
-    color-scheme: dark;
+    --bg: #FFFFFF;
+    --bg-subtle: #F5F5F7;
+    --bg-hover: #EBEBED;
+    --border: #D2D2D7;
+    --text-primary: #1D1D1F;
+    --text-secondary: #6E6E73;
+    --text-tertiary: #AEAEB2;
+    --accent: #1D1D1F;
+    --accent-text: #FFFFFF;
+    --success: #34C759;
+    --warning: #FF9F0A;
+    --destructive: #FF3B30;
+    --focus-ring: #0071E3;
+    --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-lift: 0 4px 16px rgba(0,0,0,0.10);
   }
 
   * {
@@ -35,12 +39,12 @@
     height: 100%;
   }
 
-  /* Global keyboard-focus ring — a clear cyan outline on EVERY focusable element
-     when navigating by Tab (keyboard only; mouse clicks don't show it). This is
-     the safety net so focus is always visible, even on elements that don't opt
-     into the .ring-focus class. */
+  html {
+    scroll-padding-top: 72px;
+  }
+
   :focus-visible {
-    outline: 2px solid rgb(var(--cyan));
+    outline: 3px solid #0071E3;
     outline-offset: 2px;
   }
   :focus:not(:focus-visible) {
@@ -49,226 +53,99 @@
 
   body {
     margin: 0;
-    background: var(--bg);
-    color: rgb(var(--text));
+    background: #FFFFFF;
+    color: #1D1D1F;
     font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     overflow-x: hidden;
-    /* Native controls (date/time pickers, checkboxes) inherit our accent + dark
-       scheme, so the browser popups match the theme. */
-    accent-color: rgb(var(--teal));
+    accent-color: #0071E3;
   }
 
-  /* `document.scrollingElement` is confirmed (measured directly) to be
-     <html> in this app, not <body> — despite body computing overflow-y:auto
-     — so this has to live here or scrollIntoView() silently ignores it.
-     Gives every scroll-into-view target (Landing's Features/How it
-     works/Trust nav) clearance from the STICKY nav bar (h-16 + its own top
-     padding ≈ 76–80px) so the section heading is never tucked underneath it. */
-  html {
-    scroll-padding-top: 96px;
-  }
-
-  /* Force the native date/time picker popups into dark mode + teal accent. */
-  input[type="datetime-local"],
-  input[type="date"],
-  input[type="time"] {
-    color-scheme: dark;
-    accent-color: rgb(var(--teal));
-  }
-  /* Nudge the calendar/clock indicator icon toward the theme. */
-  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-  input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.7) sepia(1) saturate(4) hue-rotate(120deg);
-    opacity: 0.7;
-    cursor: pointer;
+  /* Autofill: keep light theme styling */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-text-fill-color: #1D1D1F;
+    caret-color: #1D1D1F;
+    transition:
+      background-color 600000s 0s,
+      color 600000s 0s;
   }
 
   ::selection {
-    background: rgba(var(--cyan), 0.55);
-    color: #04060a;
+    background: rgba(0, 113, 227, 0.2);
+    color: #1D1D1F;
   }
   ::-moz-selection {
-    background: rgba(var(--cyan), 0.55);
-    color: #04060a;
-  }
-  /* Inputs/textareas: a bright, high-contrast selection so highlighted text is
-     obvious even over the dark glass fields and autofilled values. */
-  input::selection,
-  textarea::selection {
-    background: rgb(var(--cyan));
-    color: #04060a;
-    -webkit-text-fill-color: #04060a;
-  }
-  input::-moz-selection,
-  textarea::-moz-selection {
-    background: rgb(var(--cyan));
-    color: #04060a;
+    background: rgba(0, 113, 227, 0.2);
+    color: #1D1D1F;
   }
 
-  /* Custom scrollbar — thin, glassy. */
+  /* Light scrollbar */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: #F5F5F7;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.08);
+    background: #D2D2D7;
     border-radius: 999px;
-    border: 2px solid transparent;
+    border: 2px solid #F5F5F7;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(var(--teal), 0.4);
-    background-clip: padding-box;
+    background: #AEAEB2;
   }
 
   h1,
   h2,
   h3 {
-    font-family: "Clash Display", "Inter", system-ui, sans-serif;
-    letter-spacing: -0.02em;
-    font-weight: 600;
-  }
-
-  /* Autofill: Chrome paints its own opaque background on autofilled inputs via
-     a transition. We give background-color/color an effectively-infinite delay
-     so that fill never visibly applies — the field keeps its transparent glass
-     look and ONLY the text appears (no colour change at all). */
-  input:-webkit-autofill,
-  input:-webkit-autofill:hover,
-  input:-webkit-autofill:focus,
-  input:-webkit-autofill:active {
-    -webkit-text-fill-color: rgb(var(--text));
-    caret-color: rgb(var(--text));
-    transition:
-      background-color 600000s 0s,
-      color 600000s 0s;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.01em;
+    font-weight: 700;
   }
 }
 
 @layer components {
-  /* ---------- glass surfaces ---------- */
-  .glass {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.055),
-      rgba(255, 255, 255, 0.02)
-    );
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(22px) saturate(1.5);
-    -webkit-backdrop-filter: blur(22px) saturate(1.5);
-    box-shadow: 0 8px 40px -12px rgba(0, 0, 0, 0.55),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
-  }
-  .glass-strong {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.09),
-      rgba(255, 255, 255, 0.035)
-    );
-    border: 1px solid rgba(255, 255, 255, 0.11);
-    backdrop-filter: blur(30px) saturate(1.6);
-    -webkit-backdrop-filter: blur(30px) saturate(1.6);
-    box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.7),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  /* Clean card surface */
+  .card {
+    background: white;
+    border: 1px solid #D2D2D7;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
-  /* An animated gradient hairline border wrapper. */
-  .gradient-border {
-    position: relative;
-    isolation: isolate;
-  }
-  .gradient-border::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    background: linear-gradient(
-      135deg,
-      rgba(var(--teal), 0.7),
-      rgba(var(--cyan), 0.35),
-      rgba(var(--violet), 0.55)
-    );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0.55;
-    transition: opacity 0.4s ease;
-    pointer-events: none;
-    z-index: 1;
-  }
-  .gradient-border:hover::before {
-    opacity: 1;
-  }
-
-  /* Text gradient. */
-  .text-gradient {
-    background: linear-gradient(
-      100deg,
-      #ffffff 0%,
-      rgb(var(--cyan)) 45%,
-      rgb(var(--teal)) 70%,
-      rgb(var(--violet)) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-  }
-  .text-gold {
-    background: linear-gradient(100deg, #fff2cf, var(--tw-gold, #f5d580) 60%, #d8a94a);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  /* Noise overlay — subtle film grain over the whole app. */
-  .noise::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-    opacity: 0.04;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-
-  /* Strong keyboard-focus ring: a crisp cyan outline + soft halo, clearly
-     visible on every element. The explicit `.ring-focus` class keeps the same
-     look for elements that opt in. */
+  /* Focus ring helper */
   .ring-focus:focus-visible {
-    outline: 2px solid rgb(var(--cyan));
+    outline: 3px solid #0071E3;
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px rgba(var(--cyan), 0.28);
   }
 }
 
 @layer utilities {
-  .bg-grid {
-    background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 44px 44px;
-    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  /* Dot-grid background */
+  .dot-grid {
+    background-image: radial-gradient(circle, #D2D2D7 1px, transparent 1px);
+    background-size: 28px 28px;
   }
+
   .drag-none {
     -webkit-user-drag: none;
     user-select: none;
   }
+
   .tabnums {
     font-variant-numeric: tabular-nums;
   }
 }
 
-/* Respect users who prefer reduced motion (OS-level or the in-app toggle). */
+/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -6,8 +6,8 @@ import { Wordmark } from "@/components/Brand";
 
 export default function NotFound() {
   return (
-    <div className="relative z-[2] flex min-h-screen flex-col items-center justify-center px-4 text-center">
-      <Link to="/" className="ring-focus mb-10 rounded-xl">
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <Link to="/" className="ring-focus mb-10 rounded-lg">
         <Wordmark size={34} />
       </Link>
 
@@ -15,16 +15,9 @@ export default function NotFound() {
         initial={{ opacity: 0, scale: 0.8, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-        className="relative"
       >
-        <div
-          className="animate-floaty select-none text-[clamp(7rem,26vw,16rem)] font-semibold leading-none tracking-tighter text-gradient"
-          style={{ WebkitTextStroke: "0px" }}
-        >
+        <div className="select-none text-[clamp(7rem,26vw,16rem)] font-bold leading-none tracking-tighter text-[#1D1D1F]">
           404
-        </div>
-        <div className="pointer-events-none absolute inset-0 -z-10 blur-[80px]">
-          <div className="mx-auto h-40 w-40 rounded-full bg-cyan-glow/40" />
         </div>
       </motion.div>
 
@@ -32,17 +25,17 @@ export default function NotFound() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15 }}
-        className="mt-2 text-2xl"
+        className="mt-2 text-[24px] font-semibold text-[#1D1D1F]"
       >
-        Lost in the aurora
+        Page not found
       </motion.h1>
       <motion.p
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.22 }}
-        className="mt-2 max-w-sm text-[15px] text-white/50"
+        className="mt-2 max-w-sm text-[17px] text-[#6E6E73]"
       >
-        This page drifted out of orbit. Let's get you back to solid ground.
+        This page doesn't exist. Let's get you back on track.
       </motion.p>
 
       <motion.div

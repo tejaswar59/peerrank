@@ -1,7 +1,7 @@
 // API client — talks to the FastAPI backend on the SAME origin at /api.
-// No accounts, no tokens: every request is anonymous. The only thing that
-// stands in for identity is the poll's vote_token (in the URL) and, once a
-// name is picked, that candidate's id (in the request body).
+// Sessions are maintained via a signed HTTP-only cookie; credentials: "include"
+// is required so the browser sends that cookie on every request.
+import type { CurrentUser } from "@/lib/types";
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -49,6 +49,7 @@ export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T>
     headers: { "Content-Type": "application/json" },
     body: opts.body != null ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
+    credentials: "include",
   });
 
   if (res.status === 204) return null as T;
@@ -57,4 +58,22 @@ export async function api<T = any>(path: string, opts: ApiOpts = {}): Promise<T>
   const data = isJson ? await res.json() : await res.text();
   if (!res.ok) throw new ApiError(extractError(data, res.status), res.status);
   return data as T;
+}
+
+export async function fetchMe(): Promise<CurrentUser | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch("/auth/me", { credentials: "include", signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.authenticated ? (data as CurrentUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/auth/logout", { method: "POST", credentials: "include" });
 }

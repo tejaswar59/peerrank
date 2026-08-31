@@ -1,4 +1,4 @@
-# Render blueprint — one web service running the whole app (API + SPA).
+# Render blueprint - one web service running the whole app (API + SPA).
 # Data lives in an external free Postgres (Neon); set DATABASE_URL in the dashboard.
 services:
   - type: web
@@ -11,23 +11,37 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true          # Render generates a strong secret
-      - key: MASTER_OTP
-        sync: false                  # set in dashboard (e.g. 112233 for the demo; blank for real prod)
-      - key: DEV_PASSWORD
-        sync: false                  # set a STRONG value (dev login uses it) — not "123"
-      - key: GOOGLE_CLIENT_ID
-        sync: false                  # OAuth Web client id -> enables "Sign in with Google"
       - key: DATABASE_URL
         sync: false                  # set to your Neon URL (postgresql+psycopg://...)
+
+      # ---- Google OAuth ----
+      # The OAuth client's "Authorized redirect URIs" MUST include
+      # <APP_BASE_URL>/auth/google/callback or every sign-in fails.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: APP_BASE_URL
+        value: "https://peerrank.arcitech.ai"
+      - key: HTTPS_ONLY
+        value: "true"
+
+      # ---- Access control ----
+      # REQUIRED. admin_emails defaults to EMPTY, and require_admin guards poll
+      # creation itself (app/routers/polls.py) - so with this unset, nobody can
+      # create a poll or open the dashboard. Comma-separated, case-insensitive.
+      - key: ADMIN_EMAILS
+        sync: false
+      # Only Google accounts on this domain may sign in (no leading @).
+      - key: ALLOWED_EMAIL_DOMAIN
+        value: "arcitech.ai"
+      # Comma-separated exceptions for voters outside ALLOWED_EMAIL_DOMAIN.
+      - key: ALLOWED_EMAIL_EXCEPTIONS
+        sync: false
+
+      # ---- Misc ----
+      # SPA is served same-origin with the API, and the CORS middleware does not
+      # allow credentials, so browsers never send the session cookie
+      # cross-origin. "*" is safe here; tighten if you ever split the frontend.
       - key: CORS_ORIGINS
-        value: "*"                   # SPA is same-origin; safe to leave
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: SMTP_FROM
-        sync: false
+        value: "*"

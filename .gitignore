@@ -22,3 +22,11 @@ frontend/dist/
 frontend/.vite/
 *.local
 npm-debug.log*
+# SQLite backup snapshots (*.db is covered above; .bak suffixes are not)
+*.db.bak
+*.db.bak.*
+
+# Local agent/orchestration tooling — never part of the deployed app
+hive/
+roster.json
+roster-backups/
