@@ -27,7 +27,16 @@ DATABASE_URL = _normalise(settings.database_url)
 # check_same_thread=False lets the background sweep task use the same SQLite file.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True)
+# pool_pre_ping matters on the production stack: Neon suspends an idle compute
+# and Render's free plan spins the service down, so pooled connections go stale
+# across any quiet period. Without it the first request back gets an
+# OperationalError instead of a page. Cheap SELECT 1; skipped for local SQLite.
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    future=True,
+    pool_pre_ping=not DATABASE_URL.startswith("sqlite"),
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
 
