@@ -35,3 +35,9 @@ hive/
 roster.json
 roster-backups/
 .neon
+
+# Neon CLI scaffolding (`neon` config + its node deps) — local tooling only,
+# unrelated to the deployed Python service.
+/neon.ts
+/package.json
+/package-lock.json
