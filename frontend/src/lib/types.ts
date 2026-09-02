@@ -96,6 +96,18 @@ export interface MemberInput {
   email: string;
 }
 
+// GET /api/polls/default-roster — the standing team roster the create-poll
+// form pre-ticks. Admin-only; a failure just means an empty starting roster.
+export interface DefaultRosterOut {
+  members: MemberInput[];
+}
+
+// A roster row in the create-poll form: present (rendered) vs. selected
+// (actually submitted). Unticking keeps the row so it can be re-ticked.
+export interface RosterSelection extends MemberInput {
+  selected: boolean;
+}
+
 export interface DuplicateIn {
   name: string;
   members: MemberInput[];

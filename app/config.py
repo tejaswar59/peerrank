@@ -1,4 +1,6 @@
 """Application settings, loaded from environment / .env (see .env.example)."""
+import re
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -59,6 +61,13 @@ class Settings(BaseSettings):
     # Google sign-in and are the only accounts that can open admin APIs / results.
     admin_emails: str = ""
 
+    # ---- Default roster ----
+    # Standing team roster the create-poll form starts pre-ticked with.
+    # Format: comma-separated "Name <email>" entries, e.g.
+    #   DEFAULT_ROSTER="Anand Torati <anand@arcitech.ai>,Shubham Sah <shubham@arcitech.ai>"
+    # Empty (the default) falls back to _BUILTIN_DEFAULT_ROSTER below.
+    default_roster: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
@@ -73,5 +82,54 @@ class Settings(BaseSettings):
     def admin_emails_set(self) -> set[str]:
         return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
 
+    @property
+    def default_roster_list(self) -> list[dict]:
+        """The roster the create-poll form pre-populates with, as
+        [{"name", "email"}, ...] in display order.
+
+        Malformed entries are skipped rather than raised: this is read on every
+        poll-create page load, and a typo in an env var must never break
+        startup or poll creation. A fully unparseable DEFAULT_ROSTER just
+        yields an empty list, which the form treats as "nothing pre-ticked".
+        """
+        if not self.default_roster.strip():
+            return [dict(m) for m in _BUILTIN_DEFAULT_ROSTER]
+
+        parsed: list[dict] = []
+        seen: set[str] = set()
+        for entry in self.default_roster.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            match = _ROSTER_ENTRY_RE.match(entry)
+            if not match:
+                continue  # not "Name <email>" — skip, don't raise
+            name = " ".join(match.group("name").split())
+            email = match.group("email").strip().lower()
+            if not name or not email or email in seen:
+                continue  # dedupe by email, first occurrence wins
+            seen.add(email)
+            parsed.append({"name": name, "email": email})
+        return parsed
+
+
+# Built-in fallback so the pre-populated roster works with zero env config on a
+# fresh deploy. DEFAULT_ROSTER overrides it entirely, which lets the team list
+# change from the Render dashboard without a code change or redeploy.
+_BUILTIN_DEFAULT_ROSTER: list[dict] = [
+    {"name": "Anand Torati", "email": "anand@arcitech.ai"},
+    {"name": "Devesh Mathakar", "email": "devesh@arcitech.ai"},
+    {"name": "Prasad Barsinge", "email": "prasad@arcitech.ai"},
+    {"name": "Prateek Karkera", "email": "prateek@arcitech.ai"},
+    {"name": "Saurav Kothale", "email": "saurav@arcitech.ai"},
+    {"name": "Shubham Sah", "email": "shubham@arcitech.ai"},
+    {"name": "Sopan Kshirsagar", "email": "sopan.kshirsagar@arcitech.ai"},
+]
+
+# "Name <email>" — the email part must at least look like a@b.c for MemberIn's
+# EmailStr to accept it downstream.
+_ROSTER_ENTRY_RE = re.compile(
+    r"^(?P<name>[^<>]+?)\s*<\s*(?P<email>[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+)\s*>$"
+)
 
 settings = Settings()

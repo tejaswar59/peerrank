@@ -30,6 +30,7 @@ from ..results import close_poll
 from ..schemas import (
     BallotPageOut,
     CandidateOut,
+    DefaultRosterOut,
     PollIn,
     PollOut,
     PollStatusOut,
@@ -160,6 +161,22 @@ def _create_poll(
     db.commit()
     db.refresh(poll)
     return poll
+
+
+# ---------------- default roster ----------------
+# Registered BEFORE the /polls/{token}/... routes below. Starlette matches in
+# registration order, so keeping every literal /polls/<word> path above the
+# parameterised ones guarantees "default-roster" can never be swallowed as a
+# token (and never shadows a real one).
+@router.get("/polls/default-roster", response_model=DefaultRosterOut)
+def default_roster(admin: dict = Depends(require_admin)):
+    """The standing team roster, so the create-poll form starts pre-populated
+    and the admin only unticks who isn't taking part. Admin-guarded like poll
+    creation itself — it is only ever useful to someone who can create a poll.
+
+    This does NOT affect how a poll is created: PollIn.members remains the
+    authoritative roster, and the client posts back only the ticked members."""
+    return DefaultRosterOut(members=settings.default_roster_list)
 
 
 # ---------------- my polls (admin-scoped) ----------------

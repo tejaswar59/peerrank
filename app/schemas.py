@@ -17,6 +17,13 @@ class PollIn(BaseModel):
     duration_minutes: int = Field(gt=0)
 
 
+class DefaultRosterOut(BaseModel):
+    """The standing team roster the create-poll form starts pre-ticked with.
+    Reuses MemberIn so the shape is identical to what the form posts back."""
+
+    members: list[MemberIn]
+
+
 class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

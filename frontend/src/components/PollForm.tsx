@@ -1,10 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Plus, X, Radio, Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api, ApiError } from "@/lib/api";
-import type { MemberInput, Poll } from "@/lib/types";
+import type { DefaultRosterOut, MemberInput, Poll, RosterSelection } from "@/lib/types";
 import { toast } from "@/components/Toast";
 
 const MIN_MEMBERS = 3;
@@ -21,12 +21,14 @@ function isValidEmail(e: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
+/** Name + email inputs that append to the roster. Adding an email that is
+ * already on the roster ticks that row instead of creating a duplicate. */
 function MemberAdder({
   members,
   onChange,
 }: {
-  members: MemberInput[];
-  onChange: (v: MemberInput[]) => void;
+  members: RosterSelection[];
+  onChange: (v: RosterSelection[]) => void;
 }) {
   const [nameDraft, setNameDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
@@ -38,11 +40,22 @@ function MemberAdder({
     const e = emailDraft.trim();
     if (!n) return toast("Give them a name", "err");
     if (!e || !isValidEmail(e)) return toast("Enter a valid email", "err");
-    if (members.some((x) => x.email.toLowerCase() === e.toLowerCase())) {
-      toast("Already added", "err");
-      return;
+    const existing = members.find((x) => x.email.toLowerCase() === e.toLowerCase());
+    if (existing) {
+      if (existing.selected) {
+        toast("Already added", "err");
+        return;
+      }
+      // On the roster but unticked — tick it rather than duplicating the row.
+      onChange(
+        members.map((x) =>
+          x.email.toLowerCase() === e.toLowerCase() ? { ...x, selected: true } : x,
+        ),
+      );
+      toast(`${existing.name} is back in`, "ok");
+    } else {
+      onChange([...members, { name: n, email: e, selected: true }]);
     }
-    onChange([...members, { name: n, email: e }]);
     setNameDraft("");
     setEmailDraft("");
     nameRef.current?.focus();
@@ -87,39 +100,97 @@ function MemberAdder({
           <Plus className="h-5 w-5" />
         </button>
       </div>
-      {members.length > 0 ? (
-        <div className="mt-3 flex flex-col gap-1.5">
-          <AnimatePresence initial={false}>
-            {members.map((m) => (
-              <motion.div
-                key={m.email.toLowerCase()}
-                layout
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="flex items-center justify-between rounded-lg border border-[#D2D2D7] bg-[#F5F5F7] px-3 py-2">
-                  <span className="text-[15px] text-[#1D1D1F]">
-                    {m.name}{" "}
-                    <span className="text-[13px] text-[#6E6E73]">{m.email}</span>
+    </div>
+  );
+}
+
+/** Tickable roster: every row stays visible, only ticked rows are submitted. */
+function RosterPicker({
+  members,
+  onChange,
+}: {
+  members: RosterSelection[];
+  onChange: (v: RosterSelection[]) => void;
+}) {
+  const selectedCount = members.filter((m) => m.selected).length;
+
+  function toggle(email: string) {
+    onChange(
+      members.map((x) =>
+        x.email.toLowerCase() === email.toLowerCase() ? { ...x, selected: !x.selected } : x,
+      ),
+    );
+  }
+
+  function setAll(selected: boolean) {
+    onChange(members.map((x) => ({ ...x, selected })));
+  }
+
+  if (members.length === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      <AnimatePresence initial={false}>
+        {members.map((m) => (
+          <motion.div
+            key={m.email.toLowerCase()}
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center gap-3 rounded-lg border border-[#D2D2D7] bg-[#F5F5F7] px-3 py-2">
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={m.selected}
+                  onChange={() => toggle(m.email)}
+                  aria-label={`Include ${m.name}, ${m.email}`}
+                  className="ring-focus h-4 w-4 shrink-0 rounded border-[#D2D2D7] accent-[#0071E3]"
+                />
+                <span
+                  className={`truncate text-[15px] ${m.selected ? "text-[#1D1D1F]" : "text-[#AEAEB2]"}`}
+                >
+                  {m.name}{" "}
+                  <span className={`text-[13px] ${m.selected ? "text-[#6E6E73]" : "text-[#AEAEB2]"}`}>
+                    {m.email}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange(members.filter((x) => x.email.toLowerCase() !== m.email.toLowerCase()))
-                    }
-                    className="ring-focus rounded p-0.5 text-[#AEAEB2] transition hover:text-[#FF3B30]"
-                    aria-label={`Remove ${m.name}`}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      ) : null}
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  onChange(members.filter((x) => x.email.toLowerCase() !== m.email.toLowerCase()))
+                }
+                className="ring-focus rounded p-0.5 text-[#AEAEB2] transition hover:text-[#FF3B30]"
+                aria-label={`Remove ${m.name}`}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+      <div className="flex items-center gap-3 px-0.5 pt-0.5">
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          disabled={selectedCount === members.length}
+          className="ring-focus rounded text-[12px] text-[#6E6E73] transition hover:text-[#1D1D1F] disabled:cursor-default disabled:text-[#AEAEB2] disabled:hover:text-[#AEAEB2]"
+        >
+          Select all
+        </button>
+        <span className="text-[12px] text-[#D2D2D7]">·</span>
+        <button
+          type="button"
+          onClick={() => setAll(false)}
+          disabled={selectedCount === 0}
+          className="ring-focus rounded text-[12px] text-[#6E6E73] transition hover:text-[#1D1D1F] disabled:cursor-default disabled:text-[#AEAEB2] disabled:hover:text-[#AEAEB2]"
+        >
+          Clear all
+        </button>
+      </div>
     </div>
   );
 }
@@ -143,12 +214,53 @@ export function PollForm({
   onCreated: (poll: Poll) => void;
 }) {
   const [name, setName] = useState(initialName);
-  const [members, setMembers] = useState<MemberInput[]>(initialMembers);
+  const [members, setMembers] = useState<RosterSelection[]>(() =>
+    initialMembers.map((m) => ({ ...m, selected: true })),
+  );
   const [minutes, setMinutes] = useState(10);
   const [customOpen, setCustomOpen] = useState(false);
   const [customDraft, setCustomDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  // Only ever true in create mode, and always cleared — a failed fetch falls
+  // back to today's behaviour (empty roster + manual adder), never a stuck spinner.
+  const [rosterLoading, setRosterLoading] = useState(!readonlyRoster);
+  const [rosterFailed, setRosterFailed] = useState(false);
 
+  // Pre-populate the default team roster, all ticked. Duplicate mode keeps the
+  // roster it was handed and never calls this.
+  useEffect(() => {
+    if (readonlyRoster) return;
+    let alive = true;
+    const controller = new AbortController();
+    api<DefaultRosterOut>("/polls/default-roster", { signal: controller.signal })
+      .then((data) => {
+        if (!alive) return;
+        const fetched = Array.isArray(data?.members) ? data.members : [];
+        setMembers((prev) => {
+          const seen = new Set(prev.map((m) => m.email.toLowerCase()));
+          const defaults = fetched
+            .filter((m) => m.email && !seen.has(m.email.toLowerCase()))
+            .map((m) => ({ name: m.name, email: m.email, selected: true }));
+          return [...defaults, ...prev];
+        });
+      })
+      .catch(() => {
+        // Includes 403 (not an admin) and network errors. Silent by design:
+        // the manual adder is a complete fallback and a toast here would fire
+        // on every mount of the form.
+        if (alive) setRosterFailed(true);
+      })
+      .finally(() => {
+        if (alive) setRosterLoading(false);
+      });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [readonlyRoster]);
+
+  const selected = members.filter((m) => m.selected);
+  const selectedCount = selected.length;
   const isPreset = DURATIONS.some((d) => d.minutes === minutes);
 
   function applyCustom(raw: string) {
@@ -161,7 +273,7 @@ export function PollForm({
 
   async function create() {
     if (!name.trim()) return toast("Give it a question", "err");
-    if (members.length < MIN_MEMBERS) {
+    if (selectedCount < MIN_MEMBERS) {
       return toast(`Add at least ${MIN_MEMBERS} members before going live`, "err");
     }
     if (!(minutes >= MIN_DURATION && minutes <= MAX_DURATION)) {
@@ -169,9 +281,11 @@ export function PollForm({
     }
     setBusy(true);
     try {
+      // Only ticked rows go to the backend, in the order they are shown.
+      const payload: MemberInput[] = selected.map((m) => ({ name: m.name, email: m.email }));
       const poll = await api<Poll>(endpoint, {
         method: "POST",
-        body: { name: name.trim(), members, duration_minutes: minutes },
+        body: { name: name.trim(), members: payload, duration_minutes: minutes },
       });
       toast("Poll is live", "ok");
       onCreated(poll);
@@ -195,7 +309,7 @@ export function PollForm({
         <div className="mb-2 flex items-center justify-between">
           <p className="text-[14px] text-[#6E6E73]">Who's eligible</p>
           <span className="text-[12px] font-medium text-[#34C759]">
-            {members.length} member{members.length === 1 ? "" : "s"}
+            {selectedCount} member{selectedCount === 1 ? "" : "s"}
           </span>
         </div>
 
@@ -227,9 +341,18 @@ export function PollForm({
         ) : (
           <>
             <MemberAdder members={members} onChange={setMembers} />
-            {members.length > 0 && members.length < MIN_MEMBERS && (
+            <RosterPicker members={members} onChange={setMembers} />
+            {rosterLoading && (
+              <p className="mt-2 text-[12px] text-[#AEAEB2]">Loading the team roster…</p>
+            )}
+            {rosterFailed && members.length === 0 && (
               <p className="mt-2 text-[12px] text-[#AEAEB2]">
-                Add at least {MIN_MEMBERS} members to continue.
+                Couldn't load the default team — add people above.
+              </p>
+            )}
+            {members.length > 0 && selectedCount < MIN_MEMBERS && (
+              <p className="mt-2 text-[12px] text-[#AEAEB2]">
+                Tick at least {MIN_MEMBERS} members to continue.
               </p>
             )}
           </>
@@ -305,7 +428,7 @@ export function PollForm({
         block
         size="lg"
         loading={busy}
-        disabled={members.length < MIN_MEMBERS || !name.trim()}
+        disabled={selectedCount < MIN_MEMBERS || !name.trim()}
         onClick={create}
         leftIcon={<Radio className="h-[18px] w-[18px]" />}
       >
