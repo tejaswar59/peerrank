@@ -13,12 +13,20 @@ ENDPOINT = "/api/polls/default-roster"
 
 BUILTIN = [
     ("Anand Torati", "anand@arcitech.ai"),
+    ("Ayushi Nigudkar", "ayushi@arcitech.ai"),
     ("Devesh Mathakar", "devesh@arcitech.ai"),
+    ("Dhairyashil Pawar", "dhairyashil@arcitech.ai"),
+    ("Hassaan Siddique", "hassaan@arcitech.ai"),
+    ("Karthik Poojary", "karthik@arcitech.ai"),
+    ("Mahesh Swami", "mahesh@arcitech.ai"),
     ("Prasad Barsinge", "prasad@arcitech.ai"),
     ("Prateek Karkera", "prateek@arcitech.ai"),
+    ("Romit Addagatla", "romit@arcitech.ai"),
     ("Saurav Kothale", "saurav@arcitech.ai"),
     ("Shubham Sah", "shubham@arcitech.ai"),
     ("Sopan Kshirsagar", "sopan.kshirsagar@arcitech.ai"),
+    ("Tejaswar Yambadi", "tejaswar@arcitech.ai"),
+    ("Utkarsh Desai", "utkarsh@arcitech.ai"),
 ]
 
 
@@ -103,7 +111,7 @@ def test_default_roster_is_not_matched_as_a_vote_token(client, poll, roster_env)
     as_(client, ADMIN_EMAIL, "Admin")
     r = client.get(ENDPOINT)
     assert r.status_code == 200, r.text
-    assert len(r.json()["members"]) == 7
+    assert len(r.json()["members"]) == len(BUILTIN)
 
     # And the reverse direction: the literal path must not shadow real tokens.
     s = client.get(f"/api/polls/{poll['vote_token']}/status")

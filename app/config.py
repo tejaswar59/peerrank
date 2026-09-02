@@ -118,12 +118,20 @@ class Settings(BaseSettings):
 # change from the Render dashboard without a code change or redeploy.
 _BUILTIN_DEFAULT_ROSTER: list[dict] = [
     {"name": "Anand Torati", "email": "anand@arcitech.ai"},
+    {"name": "Ayushi Nigudkar", "email": "ayushi@arcitech.ai"},
     {"name": "Devesh Mathakar", "email": "devesh@arcitech.ai"},
+    {"name": "Dhairyashil Pawar", "email": "dhairyashil@arcitech.ai"},
+    {"name": "Hassaan Siddique", "email": "hassaan@arcitech.ai"},
+    {"name": "Karthik Poojary", "email": "karthik@arcitech.ai"},
+    {"name": "Mahesh Swami", "email": "mahesh@arcitech.ai"},
     {"name": "Prasad Barsinge", "email": "prasad@arcitech.ai"},
     {"name": "Prateek Karkera", "email": "prateek@arcitech.ai"},
+    {"name": "Romit Addagatla", "email": "romit@arcitech.ai"},
     {"name": "Saurav Kothale", "email": "saurav@arcitech.ai"},
     {"name": "Shubham Sah", "email": "shubham@arcitech.ai"},
     {"name": "Sopan Kshirsagar", "email": "sopan.kshirsagar@arcitech.ai"},
+    {"name": "Tejaswar Yambadi", "email": "tejaswar@arcitech.ai"},
+    {"name": "Utkarsh Desai", "email": "utkarsh@arcitech.ai"},
 ]
 
 # "Name <email>" — the email part must at least look like a@b.c for MemberIn's
